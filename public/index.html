@@ -20,28 +20,34 @@
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 2단계 자료 분리</div>
+    <div class="eyebrow">BYTE BACK · 2단계 서버 API 연동</div>
     <h1>내 자료실</h1>
-    <p>가상 메모를 공개 파일에서 제거하고 학습용 데이터베이스로 옮기는 단계입니다.</p>
-    <div class="notice">이 화면은 메모 내용을 공개하지 않습니다. 데이터베이스 조회 기능과 로그인은 아직 연결되지 않았습니다.</div>
-    <ul id="notes" aria-live="polite"><li>공개 목록을 확인하는 중입니다.</li></ul>
+    <p>공개 JSON 파일 대신 서버 함수를 통해 학습용 Supabase의 가상 메모를 가져옵니다.</p>
+    <div class="notice">현재는 학습용 가상 메모만 공개합니다. 서버 API는 아직 로그인 없이 누구나 호출할 수 있습니다.</div>
+    <ul id="notes" aria-live="polite"><li>가상 메모를 불러오는 중입니다.</li></ul>
   </main>
   <script type="module">
     const list = document.querySelector('#notes');
     try {
-      const response = await fetch('/data.json', { cache: 'no-store' });
-      if (!response.ok) throw new Error('공개 자료 상태를 확인할 수 없습니다.');
+      const response = await fetch('/api/notes', { cache: 'no-store' });
+      if (!response.ok) throw new Error('메모를 불러오지 못했습니다. 서버 설정을 확인해 주세요.');
       const data = await response.json();
-      if (!Array.isArray(data.notes) || data.notes.length !== 0) {
-        throw new Error('공개 데이터에 메모가 남아 있습니다.');
+      if (!Array.isArray(data.notes) || data.notes.length !== 4) {
+        throw new Error('가상 메모 네 건을 확인하지 못했습니다.');
       }
-      const item = document.createElement('li');
-      const title = document.createElement('strong');
-      const content = document.createElement('span');
-      title.textContent = '공개 메모 없음';
-      content.textContent = '학습용 데이터베이스 조회는 아직 연결되지 않았습니다.';
-      item.append(title, content);
-      list.replaceChildren(item);
+      const cards = data.notes.map((note) => {
+        if (typeof note.title !== 'string' || typeof note.content !== 'string') {
+          throw new Error('메모의 형식이 올바르지 않습니다.');
+        }
+        const card = document.createElement('li');
+        const title = document.createElement('strong');
+        const content = document.createElement('span');
+        title.textContent = note.title;
+        content.textContent = note.content;
+        card.append(title, content);
+        return card;
+      });
+      list.replaceChildren(...cards);
     } catch (error) {
       const item = document.createElement('li');
       item.textContent = error.message;

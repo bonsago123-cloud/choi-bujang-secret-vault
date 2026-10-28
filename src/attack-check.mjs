@@ -13,7 +13,7 @@ export async function runAttackChecks(config) {
     redirect: 'error', signal: AbortSignal.timeout(10000),
   });
   let visible = false;
-  let empty = false;
+  let empty = response.status === 404;
   if (response.ok) {
     try {
       const data = await response.json();
@@ -24,8 +24,8 @@ export async function runAttackChecks(config) {
   }
   if (config.step === 2) {
     return [{ attackId: 'anonymous_note_read',
-      expected: '비로그인에서 가상 메모 본문이 보이지 않음',
-      observed: empty ? '비로그인에서 빈 공개 메모 목록 확인'
+      expected: '비로그인에서 공개 data.json에 가상 메모 본문이 보이지 않음',
+      observed: empty ? '비로그인에서 공개 data.json이 없거나 빈 목록임을 확인'
         : `비로그인에서 공개 자료 상태 확인 필요 (HTTP ${response.status})` }];
   }
   return [{ attackId: 'anonymous_note_read', expected: '비로그인 화면에서 가상 메모를 확인',
