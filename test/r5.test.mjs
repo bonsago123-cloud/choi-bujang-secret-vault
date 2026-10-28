@@ -18,17 +18,20 @@ const env = {
 };
 
 test('build identity uses Vercel Git and deployment metadata', () => {
-  assert.deepEqual(deploymentIdentity(env, config), {
+  const stage2Config = { ...config, step: 2 };
+
+  assert.deepEqual(deploymentIdentity(env, stage2Config), {
     schema: 'aleph.defense.deployment.v1',
-    step: 1,
+    step: 2,
     repoUrl: 'https://github.com/student-a/aleph-defense',
     commit: 'a'.repeat(40),
     publicAppUrl: 'https://student-defense-123.vercel.app',
-    judgeIssuer: config.judgeIssuer,
-    sampleMarker: config.sampleMarker,
+    judgeIssuer: stage2Config.judgeIssuer,
+    sampleMarker: stage2Config.sampleMarker,
   });
-  assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_PROVIDER: undefined }, config));
-  assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_COMMIT_SHA: 'short' }, config));
+
+  assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_PROVIDER: undefined }, stage2Config));
+  assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_COMMIT_SHA: 'short' }, stage2Config));
 });
 
 test('first attack check reads public data.json without credentials', async () => {
