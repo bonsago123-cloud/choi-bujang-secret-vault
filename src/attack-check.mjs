@@ -1,7 +1,7 @@
-// Local self-check: only describe responses actually received, never call them judge results.
-// Never print personal data, tokens, keys or memo contents.
+// Local self-check: only describe requests actually sent; not an official judge result.
+// Never include credentials, note contents, tokens or personal information in results.
 export async function runAttackChecks(config) {
-  if (![1, 2].includes(config.step)) throw new Error('이 단계의 공격 점검을 구현해 주세요.');
+  if (![1, 2, 3].includes(config.step)) throw new Error('이 단계의 공격 점검을 구현해 주세요.');
   let app;
   try { app = new URL(config.publicAppUrl); }
   catch { throw new Error('aleph.config.json에 실제 배포 주소를 설정해 주세요.'); }
@@ -9,6 +9,19 @@ export async function runAttackChecks(config) {
       || app.pathname !== '/' || app.hostname.endsWith('.example')) {
     throw new Error('aleph.config.json의 배포 주소를 확인해 주세요.');
   }
+
+  if (config.step === 3) {
+    const requestOptions = { redirect: 'error', signal: AbortSignal.timeout(10000) };
+    const [collection, sample] = await Promise.all([
+      fetch(new URL('/api/memos', app), requestOptions),
+      fetch(new URL('/api/notes', app), requestOptions),
+    ]);
+    // Inspect the status, not the response body, to avoid accidentally storing any notes.
+    return [{ attackId: 'anonymous_note_read',
+      expected: '비로그인 GET /api/memos 및 GET /api/notes 모두 HTTP 401로 거부',
+      observed: `실제 비로그인 HTTP 상태: /api/memos ${collection.status}, /api/notes ${sample.status}` }];
+  }
+
   const response = await fetch(new URL('/data.json', app), {
     redirect: 'error', signal: AbortSignal.timeout(10000),
   });
