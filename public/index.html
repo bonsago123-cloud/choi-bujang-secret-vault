@@ -29,10 +29,10 @@
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 2단계 서버 API 연동</div>
+    <div class="eyebrow">BYTE BACK · 3단계 로그인 인증</div>
     <h1>내 자료실</h1>
-    <p>공개 JSON 파일 대신 서버 함수를 통해 학습용 Supabase의 가상 메모를 가져옵니다.</p>
-    <div class="notice">현재는 학습용 가상 메모만 공개합니다. 서버 API는 아직 로그인 없이 누구나 호출할 수 있습니다.</div>
+    <p>로그인한 사용자에게만 서버 API가 학습용 가상 메모를 제공합니다.</p>
+    <div class="notice">자료 API는 서버에서 로그인 토큰을 검증합니다. 로그인하지 않으면 자료를 반환하지 않습니다.</div>
 
     <section class="auth-box" aria-labelledby="auth-title">
       <h2 id="auth-title">이메일 로그인</h2>
@@ -51,7 +51,7 @@
       <p id="auth-error" class="auth-error" role="alert" hidden></p>
     </section>
 
-    <ul id="notes" aria-live="polite"><li>가상 메모를 불러오는 중입니다.</li></ul>
+    <ul id="notes" aria-live="polite"><li>로그인하면 가상 메모를 불러옵니다.</li></ul>
   </main>
 
   <!-- Supabase 공식 JavaScript SDK의 브라우저용 배포본 (고정된 버전) -->
@@ -69,6 +69,8 @@
     const logoutButton = document.querySelector('#logout-button');
     const status = document.querySelector('#auth-status');
     const errorMessage = document.querySelector('#auth-error');
+    const notesList = document.querySelector('#notes');
+    let notesRequestVersion = 0;
 
     function showError(message) {
       errorMessage.textContent = message;
@@ -92,7 +94,60 @@
       passwordInput.disabled = busy;
     }
 
-    // SDK를 불러오지 못한 경우에도 기존 메모 카드 로딩은 독립적으로 동작합니다.
+    function showNotesMessage(message) {
+      const item = document.createElement('li');
+      item.textContent = message;
+      notesList.replaceChildren(item);
+    }
+
+    // Only the Supabase SDK session token goes to the API. The server verifies it.
+    // A sequence number prevents in-flight responses from reappearing after logout.
+    async function loadNotes(accessToken) {
+      const requestVersion = ++notesRequestVersion;
+      if (!accessToken) {
+        showNotesMessage('로그인하면 가상 메모를 볼 수 있습니다.');
+        return;
+      }
+      showNotesMessage('가상 메모를 불러오는 중입니다.');
+      try {
+        const response = await fetch('/api/notes', {
+          method: 'GET',
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (requestVersion !== notesRequestVersion) return;
+        if (response.status === 401) {
+          showNotesMessage('로그인 인증이 유효하지 않습니다. 다시 로그인해 주세요.');
+          return;
+        }
+        if (!response.ok) throw new Error('메모를 불러오지 못했습니다. 서버 설정을 확인해 주세요.');
+        const data = await response.json();
+        if (requestVersion !== notesRequestVersion) return;
+        if (!Array.isArray(data.notes) || data.notes.length !== 4) {
+          throw new Error('가상 메모 네 건을 확인하지 못했습니다.');
+        }
+        const cards = data.notes.map((note) => {
+          if (typeof note.title !== 'string' || typeof note.content !== 'string') {
+            throw new Error('메모의 형식이 올바르지 않습니다.');
+          }
+          const card = document.createElement('li');
+          const title = document.createElement('strong');
+          const content = document.createElement('span');
+          title.textContent = note.title;
+          content.textContent = note.content;
+          card.append(title, content);
+          return card;
+        });
+        notesList.replaceChildren(...cards);
+      } catch (error) {
+        if (requestVersion === notesRequestVersion) {
+          showNotesMessage(error.message || '자료 요청에 실패했습니다.');
+        }
+      }
+    }
+
+    // If the SDK cannot load, no unauthenticated notes request is issued.
+
     if (!window.supabase?.createClient) {
       status.textContent = '로그인 기능을 불러오지 못했습니다.';
       showError('Supabase 로그인 SDK 연결에 실패했습니다. 네트워크를 확인한 뒤 새로고침하세요.');
@@ -101,8 +156,9 @@
 
       // 토큰은 SDK가 관리하며 직접 만들거나 출력하지 않습니다.
       authClient.auth.onAuthStateChange((event, session) => {
-        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'INITIAL_SESSION') {
+        if (['SIGNED_IN', 'SIGNED_OUT', 'INITIAL_SESSION', 'TOKEN_REFRESHED'].includes(event)) {
           renderAuth(session?.user ?? null);
+          void loadNotes(session?.access_token ?? null);
           if (event === 'SIGNED_OUT') clearError();
         }
       });
@@ -112,11 +168,15 @@
         if (error && error.code !== 'session_not_found') {
           // 유효하지 않은 기존 세션은 로그인 상태로 취급하지 않습니다.
           renderAuth(null);
+          void loadNotes(null);
         } else {
           renderAuth(data.user ?? null);
+          const { data: sessionData } = await authClient.auth.getSession();
+          void loadNotes(data.user ? sessionData.session?.access_token : null);
         }
       } catch {
         renderAuth(null);
+        void loadNotes(null);
         showError('로그인 상태 확인에 실패했습니다. 네트워크 연결을 확인하세요.');
       }
 
@@ -134,19 +194,23 @@
           passwordInput.value = '';
           if (error) {
             renderAuth(null);
+            void loadNotes(null);
             showError(`로그인 실패: ${error.message}`);
             return;
           }
           if (!data.user) {
             renderAuth(null);
+            void loadNotes(null);
             showError('로그인 실패: 사용자 정보를 확인하지 못했습니다.');
             return;
           }
           renderAuth(data.user);
+          void loadNotes(data.session?.access_token ?? null);
           status.textContent = '로그인에 성공했습니다.';
         } catch (error) {
           passwordInput.value = '';
           renderAuth(null);
+          void loadNotes(null);
           showError(`로그인 실패: ${error.message || '네트워크 연결을 확인하세요.'}`);
         } finally {
           setBusy(false);
@@ -157,18 +221,24 @@
         clearError();
         setBusy(true);
         status.textContent = '로그아웃 요청 중...';
+        void loadNotes(null);
         try {
           const { error } = await authClient.auth.signOut({ scope: 'local' });
           if (error) {
             status.textContent = '로그인 상태입니다.';
             showError(`로그아웃 실패: ${error.message}`);
+            const { data: sessionData } = await authClient.auth.getSession();
+            void loadNotes(sessionData.session?.access_token ?? null);
             return;
           }
           renderAuth(null);
+          void loadNotes(null);
           status.textContent = '로그아웃했습니다.';
         } catch (error) {
           status.textContent = '로그인 상태입니다.';
           showError(`로그아웃 실패: ${error.message || '네트워크 연결을 확인하세요.'}`);
+          const { data: sessionData } = await authClient.auth.getSession();
+          void loadNotes(sessionData.session?.access_token ?? null);
         } finally {
           setBusy(false);
         }
@@ -176,34 +246,5 @@
     }
   </script>
 
-  <!-- 2단계 공개 메모 조회는 변경 없이 유지합니다. 로그인 보호는 후속 작업입니다. -->
-  <script type="module">
-    const list = document.querySelector('#notes');
-    try {
-      const response = await fetch('/api/notes', { cache: 'no-store' });
-      if (!response.ok) throw new Error('메모를 불러오지 못했습니다. 서버 설정을 확인해 주세요.');
-      const data = await response.json();
-      if (!Array.isArray(data.notes) || data.notes.length !== 4) {
-        throw new Error('가상 메모 네 건을 확인하지 못했습니다.');
-      }
-      const cards = data.notes.map((note) => {
-        if (typeof note.title !== 'string' || typeof note.content !== 'string') {
-          throw new Error('메모의 형식이 올바르지 않습니다.');
-        }
-        const card = document.createElement('li');
-        const title = document.createElement('strong');
-        const content = document.createElement('span');
-        title.textContent = note.title;
-        content.textContent = note.content;
-        card.append(title, content);
-        return card;
-      });
-      list.replaceChildren(...cards);
-    } catch (error) {
-      const item = document.createElement('li');
-      item.textContent = error.message;
-      list.replaceChildren(item);
-    }
-  </script>
 </body>
 </html>
