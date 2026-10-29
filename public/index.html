@@ -16,6 +16,15 @@
     li { border: 1px solid #51667c; border-radius: 14px; padding: 17px 19px; background: #1a2a3d; }
     strong { display: block; font-size: 18px; margin-bottom: 5px; }
     li span { color: #bfd0e5; }
+    .auth-box { margin: 26px 0; padding: 20px; border: 1px solid #51667c; border-radius: 14px; background: #1a2a3d; }
+    .auth-box h2 { margin: 0 0 10px; font-size: 22px; }
+    .auth-box p { margin: 8px 0; font-size: 15px; }
+    .auth-box label { display: block; margin: 14px 0 6px; font-weight: 700; }
+    .auth-box input { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid #72869c; border-radius: 8px; font: inherit; }
+    .auth-box button { margin-top: 16px; padding: 11px 18px; border: 0; border-radius: 8px; background: #8ad8df; color: #101a28; font: inherit; font-weight: 700; cursor: pointer; }
+    .auth-box button:disabled { cursor: wait; opacity: .6; }
+    .auth-box .auth-error { color: #ffb5be; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
@@ -24,8 +33,150 @@
     <h1>내 자료실</h1>
     <p>공개 JSON 파일 대신 서버 함수를 통해 학습용 Supabase의 가상 메모를 가져옵니다.</p>
     <div class="notice">현재는 학습용 가상 메모만 공개합니다. 서버 API는 아직 로그인 없이 누구나 호출할 수 있습니다.</div>
+
+    <section class="auth-box" aria-labelledby="auth-title">
+      <h2 id="auth-title">이메일 로그인</h2>
+      <p id="auth-status" role="status" aria-live="polite">로그인 상태 확인 중...</p>
+      <form id="login-form" hidden>
+        <label for="login-email">이메일</label>
+        <input id="login-email" type="email" autocomplete="username" required>
+        <label for="login-password">비밀번호</label>
+        <input id="login-password" type="password" autocomplete="current-password" required>
+        <button id="login-button" type="submit">로그인</button>
+      </form>
+      <div id="logged-in" hidden>
+        <p id="logged-in-email"></p>
+        <button id="logout-button" type="button">로그아웃</button>
+      </div>
+      <p id="auth-error" class="auth-error" role="alert" hidden></p>
+    </section>
+
     <ul id="notes" aria-live="polite"><li>가상 메모를 불러오는 중입니다.</li></ul>
   </main>
+
+  <!-- Supabase 공식 JavaScript SDK의 브라우저용 배포본 (고정된 버전) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
+  <script type="module">
+    // Project URL과 publishable key는 공개용 설정입니다. secret/service_role 키는 절대 넣지 않습니다.
+    const PROJECT_URL = 'https://xfvldqqajkfxahjdvieo.supabase.co';
+    const PUBLISHABLE_KEY = 'sb_publishable_wKlA4BCO8nIudFmfunIaSg_CiyaGqDt';
+    const form = document.querySelector('#login-form');
+    const emailInput = document.querySelector('#login-email');
+    const passwordInput = document.querySelector('#login-password');
+    const loginButton = document.querySelector('#login-button');
+    const loggedIn = document.querySelector('#logged-in');
+    const loggedInEmail = document.querySelector('#logged-in-email');
+    const logoutButton = document.querySelector('#logout-button');
+    const status = document.querySelector('#auth-status');
+    const errorMessage = document.querySelector('#auth-error');
+
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.hidden = false;
+    }
+    function clearError() {
+      errorMessage.textContent = '';
+      errorMessage.hidden = true;
+    }
+    function renderAuth(user) {
+      const isLoggedIn = Boolean(user);
+      form.hidden = isLoggedIn;
+      loggedIn.hidden = !isLoggedIn;
+      loggedInEmail.textContent = isLoggedIn ? `로그인 계정: ${user.email || '이메일 미제공'}` : '';
+      status.textContent = isLoggedIn ? '로그인 상태입니다.' : '로그아웃 상태입니다. 이메일로 로그인하세요.';
+    }
+    function setBusy(busy) {
+      loginButton.disabled = busy;
+      logoutButton.disabled = busy;
+      emailInput.disabled = busy;
+      passwordInput.disabled = busy;
+    }
+
+    // SDK를 불러오지 못한 경우에도 기존 메모 카드 로딩은 독립적으로 동작합니다.
+    if (!window.supabase?.createClient) {
+      status.textContent = '로그인 기능을 불러오지 못했습니다.';
+      showError('Supabase 로그인 SDK 연결에 실패했습니다. 네트워크를 확인한 뒤 새로고침하세요.');
+    } else {
+      const authClient = window.supabase.createClient(PROJECT_URL, PUBLISHABLE_KEY);
+
+      // 토큰은 SDK가 관리하며 직접 만들거나 출력하지 않습니다.
+      authClient.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'INITIAL_SESSION') {
+          renderAuth(session?.user ?? null);
+          if (event === 'SIGNED_OUT') clearError();
+        }
+      });
+
+      try {
+        const { data, error } = await authClient.auth.getUser();
+        if (error && error.code !== 'session_not_found') {
+          // 유효하지 않은 기존 세션은 로그인 상태로 취급하지 않습니다.
+          renderAuth(null);
+        } else {
+          renderAuth(data.user ?? null);
+        }
+      } catch {
+        renderAuth(null);
+        showError('로그인 상태 확인에 실패했습니다. 네트워크 연결을 확인하세요.');
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        clearError();
+        setBusy(true);
+        status.textContent = '로그인 요청 중...';
+        try {
+          const { data, error } = await authClient.auth.signInWithPassword({
+            email: emailInput.value.trim(),
+            password: passwordInput.value,
+          });
+          // 화면에서 입력한 비밀번호를 로그인 시도 후 즉시 비웁니다.
+          passwordInput.value = '';
+          if (error) {
+            renderAuth(null);
+            showError(`로그인 실패: ${error.message}`);
+            return;
+          }
+          if (!data.user) {
+            renderAuth(null);
+            showError('로그인 실패: 사용자 정보를 확인하지 못했습니다.');
+            return;
+          }
+          renderAuth(data.user);
+          status.textContent = '로그인에 성공했습니다.';
+        } catch (error) {
+          passwordInput.value = '';
+          renderAuth(null);
+          showError(`로그인 실패: ${error.message || '네트워크 연결을 확인하세요.'}`);
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      logoutButton.addEventListener('click', async () => {
+        clearError();
+        setBusy(true);
+        status.textContent = '로그아웃 요청 중...';
+        try {
+          const { error } = await authClient.auth.signOut({ scope: 'local' });
+          if (error) {
+            status.textContent = '로그인 상태입니다.';
+            showError(`로그아웃 실패: ${error.message}`);
+            return;
+          }
+          renderAuth(null);
+          status.textContent = '로그아웃했습니다.';
+        } catch (error) {
+          status.textContent = '로그인 상태입니다.';
+          showError(`로그아웃 실패: ${error.message || '네트워크 연결을 확인하세요.'}`);
+        } finally {
+          setBusy(false);
+        }
+      });
+    }
+  </script>
+
+  <!-- 2단계 공개 메모 조회는 변경 없이 유지합니다. 로그인 보호는 후속 작업입니다. -->
   <script type="module">
     const list = document.querySelector('#notes');
     try {
