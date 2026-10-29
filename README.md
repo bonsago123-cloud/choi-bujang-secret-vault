@@ -1,3 +1,45 @@
+# BYTE BACK 방어전 R5 — 3단계 저장점 (2026-10-29)
+
+> **현재 운영 단계: 3단계.** 아래의 「2단계 기록」은 당시 상태를 보존한 과거 기록이며, 현재 접근 권한을 설명하지 않습니다.
+
+## 현재 작동하는 기능
+
+- Supabase Auth 이메일·비밀번호 로그인과 로그아웃. 서버의 기존 `src/verify-login.mjs`로 토큰을 검증하며, 브라우저가 전송하는 `userId`, `role`, `owner_id`를 인증·권한 근거로 신뢰하지 않습니다.
+- 로그인 후 `GET /api/notes`에서 기존 학습용 가상 메모 4건을 조회합니다. 비로그인 요청은 자료 없이 거부하고 로그아웃하면 화면의 메모를 숨깁니다.
+- 새 학습용 메모를 `public.user_notes`에 UUID로 저장하고 추가·목록·조회·수정·삭제합니다. 서버가 확인한 사용자 ID로 `owner_id`를 지정합니다.
+- 목록은 로그인한 사람의 메모만 반환합니다. **개별 UUID 조회·수정·삭제에는 아직 소유자 조건이 없습니다.** 다른 로그인 사용자가 UUID를 알면 접근할 수 있는 문제는 4단계에서 다룹니다. 실제 개인정보는 넣지 않습니다.
+- 공개 `/data.json` 생성을 중단하고 `/aleph.json`에 배포 식별을 기록합니다.
+
+## 3단계 API 경로
+
+| 메서드 | 경로 | 동작 |
+| --- | --- | --- |
+| GET | `/api/notes` | 인증 후 기존 가상 메모 4건 |
+| GET | `/api/memos` | 인증된 사용자의 메모 목록 |
+| POST | `/api/memos` | 메모 추가, `{id}` 반환 |
+| GET | `/api/memos/:id` | `{id,title,body}` 반환, 없으면 404 |
+| PUT | `/api/memos/:id` | 메모 수정 |
+| DELETE | `/api/memos/:id` | 메모 삭제 |
+
+`aleph.config.json`의 `step`은 `3`, `allowedRoutes`에는 위 경로 6개가 등록되어 있습니다. Supabase Auth의 `identityProvider` 공개 발급자 정보가 설정되어 있으며 `judgeIssuer`는 유지됩니다. `originalApiUrl`과 `restoreRoute`는 아직 `null`입니다. 서버 비밀키는 Git과 브라우저 코드에 넣지 않습니다.
+
+## 다시 실행하는 방법 (Windows CMD)
+
+```cmd
+npm ci && npm run build -- --local && npm run test:r5 && npm run test:package && node --test test/notes.test.mjs && node --test test/memos.test.mjs
+npm run bundle
+```
+
+`--local`은 로컬 빌드 옵션입니다. `bundle-notes.json`은 로컬 제출 설명, `artifacts/submission.json`은 생성된 제출 묶음이며 **둘 다 Git에 커밋하지 않습니다**. 번들 실행 전에는 변경 파일을 모두 필요한 만큼 커밋해 Git 작업 폴더가 깨끗해야 합니다. `npm run bundle`은 실제 비로그인 API 응답 상태를 학생 자기 점검으로 기록하며 공식 심판 채점 결과가 아닙니다.
+
+## 확인 범위와 남은 약점
+
+2026-10-29 기준 로컬 검사에서 메모 관리 4/4, 기존 자료 API 5/5, R5 3/3, 패키징 3/3 통과 및 로컬 빌드 성공을 확인했습니다. 당시 배포 커밋 `5b51265`는 Vercel 운영 환경에서 READY였고 비로그인 브라우저에서 메모 본문이 보이지 않았으며 자료 API 두 곳에서 `UNAUTHORIZED` 응답을 확인했습니다. 실제 A 계정의 메모 추가·수정·삭제는 학생이 확인했습니다. HTTP 401 상태 코드 자체와 A 계정의 전체 API 호출 내역을 독립적으로 검증한 것은 아닙니다. 4단계 전까지 개별 메모의 소유자 검사 미구현 상태이며 과거 공개 Git·배포 기록도 별개로 남습니다.
+
+---
+
+## 2단계 기록 (이하 내용은 당시 기록이며 현재 상태 설명이 아닙니다)
+
 # BYTE BACK 방어전 R5 — 2단계 서버 API 자료 조회
 
 학습용 **가상 메모 네 건**을 Supabase `public.study_notes`에 보관하고, 홈페이지에서는 Vercel 서버 함수 `GET /api/notes`를 통해 조회합니다. 실제 개인정보·비밀번호·비밀키는 Git, 정적 파일, 브라우저 코드에 저장하지 않습니다.
