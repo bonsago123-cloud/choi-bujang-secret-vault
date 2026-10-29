@@ -8,11 +8,13 @@
 2. Vercel의 `api/notes.js`가 **서버에서만** `SUPABASE_URL` 및 `SUPABASE_SECRET_KEY` 환경변수를 읽습니다.
 3. 서버 함수는 `study_notes`에서 `owner_id IS NULL`이고 이름이 지정된 가상 메모 네 건의 `title`, `content`만 읽습니다.
 4. 응답에는 가상 메모 네 건만 포함합니다. 브라우저는 각 항목을 카드로 보여 줍니다.
-5. `public/data.json`은 삭제하며, 빌드가 이전 복사본을 발견해도 제거합니다. 따라서 `/data.json`을 통해 메모가 노출되지 않습니다.
+5. `public/data.json`은 삭제하며, 빌드가 이전 복사본을 발견해도 제거합니다. 따라서 현재 배포의 `/data.json`을 통해 메모가 노출되지 않습니다.
 
 ## 보안상 남은 약점 (중요)
 
-**`GET /api/notes`는 현재 공개 주소입니다. 로그인·인증·사용자별 권한 확인이 없어서, URL을 아는 사람은 누구나 가상 메모 네 건을 요청할 수 있습니다.** 서버 전용 Supabase secret key는 브라우저에 전달되지 않지만, **키가 숨겨져 있다는 사실만으로 서버 API 접근이 통제되는 것은 아닙니다.** 따라서 실습용 가상 자료만 조회하고 실제 학생 자료를 넣지 않습니다. 이후 단계에서 인증·인가를 구현해야 합니다.
+**`GET /api/notes`는 현재 공개 주소입니다. 로그인·인증·사용자별 권한 확인이 없어서 URL을 아는 사람은 누구나 가상 메모 네 건을 요청할 수 있습니다.**
+
+서버 전용 Supabase secret key는 브라우저에 전달되지 않지만, **키가 숨겨져 있다는 사실만으로 서버 API 접근이 통제되는 것은 아닙니다.** 따라서 실습용 가상 자료만 조회하고 실제 학생 자료를 넣지 않습니다. 이후 단계에서 인증·인가를 구현해야 합니다.
 
 서버의 secret key는 Supabase RLS(행 수준 보안)를 우회할 수 있으므로 `title`, `content` 두 필드와 지정된 가상 메모 네 건만 응답합니다. 오류 응답·로그에는 내부 오류 정보나 키를 출력하지 않습니다.
 
@@ -29,21 +31,24 @@
 
 ## 확인 방법
 
-- `npm run build -- --local` — 로컬 빌드, 오래된 `public/data.json` 제거, `--local`은 Vercel 식별 생성을 생략
-- `npm run test:r5` — 배포 식별·공개 JSON 자기점검 테스트
+- `npm run build -- --local` — 로컬 빌드, 오래된 `public/data.json` 제거. `--local`은 Vercel 식별 생성을 생략합니다.
+- `npm run test:r5` — 배포 식별·공개 JSON 자기 점검 테스트
 - `npm run test:package` — 패키징 기준 테스트
 - `node --test test/notes.test.mjs` — 서버 함수의 메서드·환경변수·응답 테스트
-- `GET /`: 가상 메모 카드 4개 표시 (환경변수 설정·배포 후)
-- `GET /api/notes`: 공개 상태에서 가상 메모 4개를 반환 (**현재 약점**, 비밀키는 반환 금지)
-- `GET /data.json`: `404` 또는 메모가 포함되지 않은 응답
-- `GET /aleph.json`: 단계·배포 저장소·커밋 정보 유지, secret key 없음
+- `GET /` — 가상 메모 카드 4개 표시 (환경변수 설정·배포 후)
+- `GET /api/notes` — 공개 상태에서 가상 메모 4개 반환 (**현재 약점**, 비밀키는 반환 금지)
+- `GET /data.json` — `404` 또는 메모가 포함되지 않은 응답
+- `GET /aleph.json` — 단계·배포 저장소·커밋 정보 유지, secret key 없음
 
 `aleph.config.json`의 `step`은 `2`이며 빌드·배포 식별 스크립트는 2~12단계를 허용합니다. `judgeIssuer`는 변경하지 않았습니다. `repoUrl` 및 `publicAppUrl`은 실제 GitHub 및 Vercel 주소로 설정했습니다. 배포 식별 정보는 `/aleph.json`의 커밋과 저장소를 대조해 확인합니다.
 
+---
 
 ## 공개 가상 메모 원문 노출 재검사 (2026-10-28)
 
-**검사 목적:** 현재 배포 파일과 GitHub `main` 최신 파일에서 가상 메모 원문이 검색되는지 확인하고, **과거 Git 커밋·옛 배포의 노출 문제를 현재 배포의 수정과 구분**합니다. 검색 대상은 `실습용 가상 (과제|포트폴리오|리추얼|행정) 기록`에 맞는 가상 메모 본문 네 문장입니다. 아래 확인 결과는 커밋 `6bb4d8591b40028b70ac3e446c176026a3f151eb` 당시의 기록입니다. 다음 커밋에서는 검사를 반복해 날짜와 결과를 갱신합니다.
+**검사 목적:** 현재 배포 파일과 GitHub `main` 최신 파일에서 가상 메모 원문이 검색되는지 확인하고, **과거 Git 커밋·옛 배포의 노출 문제를 현재 배포의 수정과 구분**합니다. 검색 대상은 `실습용 가상 (과제|포트폴리오|리추얼|행정) 기록`에 맞는 가상 메모 본문 네 문장입니다.
+
+아래 결과는 **2026-10-28, 배포 커밋 `8909c369d83a4b438b6b89b0af4f930df163ed4b` 확인 당시**의 기록입니다. 이후 새 커밋과 배포가 생성되면 검사를 반복해 날짜와 결과를 갱신합니다.
 
 ### 1. GitHub 최신 파일 검색 (Windows CMD)
 
@@ -52,18 +57,20 @@ git fetch origin
 git grep -n -E "실습용 가상 (과제|포트폴리오|리추얼|행정) 기록" origin/main -- .
 ```
 
-- `git fetch origin`: 원격 GitHub 변경 이력을 가져옵니다. 로컬 파일은 덮어쓰지 않습니다.
-- `git grep`: Git에 추적된 파일 내용 검색. `-n`은 줄 번호, `-E`는 확장 정규표현식, `origin/main`은 최신 원격 브랜치, `-- .`은 저장소 전체입니다.
-- 일치 문장이 없다면 결과가 출력되지 않을 수 있습니다(검색 종료 코드 1). 출력이 없다는 사실은 **현재 브랜치의 추적 파일에서 검색한 문장이 없다는 뜻**이지, 과거 커밋과 공개 API까지 안전하다는 뜻은 아닙니다.
-- GitHub의 최신 루트 [`data.json`](data.json)이 `"notes": []`인지 별도로 확인하세요.
+- `git fetch origin`: GitHub의 원격 변경 이력을 가져옵니다. 로컬 작업 파일을 덮어쓰지 않습니다.
+- `git grep`: Git이 추적하는 파일의 내용 검색. `-n`은 줄 번호, `-E`는 확장 정규표현식, `origin/main`은 최신 원격 브랜치, `-- .`은 현재 디렉터리 이하 검색 범위입니다. 저장소 루트에서 실행합니다.
+- 일치하는 문장이 없다면 결과가 출력되지 않을 수 있습니다(검색 종료 코드 `1`). 출력이 없다는 사실은 **현재 원격 브랜치의 추적 파일에서 해당 문장이 발견되지 않았다는 뜻**이지, 과거 커밋과 공개 API까지 안전하다는 뜻은 아닙니다.
+- GitHub의 최신 루트 [`data.json`](data.json)이 `"notes": []`인지 별도로 확인합니다.
 
 ### 2. 현재 배포 파일과 공개 API 검색 (Windows CMD, Node.js)
+
+배포 주소: `https://choi-bujang-secret-vault-one-theta.vercel.app`
 
 ```cmd
 node -e "(async()=>{const base='https://choi-bujang-secret-vault-one-theta.vercel.app';const re=/실습용 가상 (과제|포트폴리오|리추얼|행정) 기록/g;for(const p of ['/','/data.json','/aleph.json','/api/notes']){const r=await fetch(base+p,{cache:'no-store'});const body=await r.text();console.log(p,'HTTP',r.status,'원문 일치:',(body.match(re)||[]).length)}})().catch(e=>{console.error(e);process.exitCode=1})"
 ```
 
-이 검사는 비로그인 HTTP 요청에서 **상태 코드**와 **가상 메모 본문 원문 일치 횟수**만 출력합니다. 요청 실패를 0건으로 기록하지 마세요. `/`의 원본 HTML과 브라우저에서 JavaScript가 실행된 뒤 나타나는 카드 내용은 서로 다릅니다. 카드 내용은 `/api/notes` 응답으로 표시됩니다. 로그인 없는 브라우저에서도 API를 별도로 열어 접근 가능 여부를 확인하세요.
+이 명령은 비로그인 HTTP 요청으로 **상태 코드**와 **가상 메모 본문 원문 일치 횟수**를 출력합니다. 요청 실패를 0건으로 기록하지 마세요. `/`의 원본 HTML과 브라우저에서 JavaScript가 실행된 뒤 나타나는 카드 내용은 서로 다릅니다. 카드는 `/api/notes` 응답으로 표시됩니다. 로그인하지 않은 브라우저에서도 해당 API에 접근할 수 있는지 별도로 확인합니다.
 
 ### 3. 과거 Git 커밋과 옛 배포 검색
 
@@ -72,25 +79,105 @@ git grep -n -E "실습용 가상 (과제|포트폴리오|리추얼|행정) 기�
 git log --all --oneline -- data.json public/data.json
 ```
 
-첫 명령은 **최초 공개 커밋**에 남아 있는 가상 메모 원문을 검사합니다. 두 번째 명령은 해당 파일의 로컬에서 확인 가능한 변경 이력을 나열합니다. 웹에서 [최초 커밋의 `public/data.json`](https://github.com/bonsago123-cloud/choi-bujang-secret-vault/blob/d853989f6af1c6b49dae3565af5a42ea968a26a7/public/data.json)도 다시 열 수 있습니다. Vercel의 **Deployments** 목록에서 옛 배포 및 배포별 고유 URL을 확인하고, 비로그인 접근 성공·로그인 요구·확인 실패를 구분해 기록하세요.
+첫 번째 명령은 **최초 공개 커밋**에 남아 있는 가상 메모 원문을 검사합니다. 두 번째 명령은 로컬에서 확인 가능한 해당 파일의 변경 이력을 보여 줍니다. [최초 커밋의 `public/data.json`](https://github.com/bonsago123-cloud/choi-bujang-secret-vault/blob/d853989f6af1c6b49dae3565af5a42ea968a26a7/public/data.json)도 확인할 수 있습니다.
+
+Vercel의 **Deployments** 목록에서 이전 배포와 고유 URL을 찾고 비로그인 접근 성공·로그인 필요·확인 실패를 구분해 기록합니다. 과거 URL이 존재한다고 해서 모두 현재 공개 상태라고 단정하지 않으며, 확인에 실패했다고 해서 과거 노출이 사라졌다고 판단하지 않습니다.
 
 ### 4. 직접 확인한 검색 결과
 
 | 검사 대상 | 검색·응답 결과 | 의미 |
 | --- | --- | --- |
-| GitHub 최신 `main`의 추적 파일 전체 | 가상 메모 원문 4종의 완전 일치 **0건** | 최신 저장소 추적 파일에는 해당 본문 문장이 없음 |
-| GitHub 최신 루트 `data.json` | `"notes": []` | 현재 GitHub 루트 JSON에는 메모 본문 없음 |
-| 현재 배포 `/`의 정적 HTML | 원문 일치 **0건** | HTML 원본에는 없지만 JS 실행 후 API의 메모 카드가 표시됨 |
-| 현재 배포 `/data.json` | **HTTP 404** | 현재 정적 공개 경로에서 파일을 제공하지 않음 |
-| 현재 배포 `/aleph.json` | **HTTP 200**, 2단계·커밋 `6bb4d859...`, 원문 일치 **0건** | 현재 배포 식별 정보 유지 |
-| 현재 배포 `/api/notes` | **HTTP 200**, 가상 메모 **4건 원문 반환** | 로그인·사용자별 인가 없이 메모 본문 공개 중 |
-| 최초 Git 커밋 `d853989f6...` | `data.json`에 **4건**, `public/data.json`에 **4건**의 원문 존재 | **과거 공개 커밋에서 본문을 여전히 조회 가능** |
-| 이전 Vercel 배포들 | 배포 기록·고유 URL 존재. 일부 요청은 로그인 요구, 일부 확인 실패 | 과거 배포의 모든 비로그인 열람 가능 여부는 **미확인** |
+| GitHub `main` 추적 파일 전체 (당시) | 가상 메모 원문 4종 완전 일치 **0건** | 최신 추적 파일에 해당 메모 문장이 발견되지 않음 |
+| GitHub 루트 `data.json` (당시) | `"notes": []` | 현재 루트 JSON에 메모 본문 없음 |
+| 배포 `/`의 정적 HTML (당시) | 원문 일치 **0건** | HTML 원본에는 없지만 JS 실행 후 API의 메모 카드 표시 |
+| 배포 `/data.json` (당시) | **HTTP 404** | 현재 정적 공개 경로에서 파일 미제공 |
+| 배포 `/aleph.json` (당시) | **HTTP 200**, 2단계, 커밋 `8909c369...`, 원문 일치 **0건** | 확인 당시 배포 식별 정보 |
+| 배포 `/api/notes` (당시) | **HTTP 200**, 가상 메모 **4건 원문 반환** | 로그인·사용자별 인가 없이 메모 본문 공개 |
+| 최초 Git 커밋 `d853989f6...` | `data.json`에 4건, `public/data.json`에 4건의 원문 존재 | **과거 공개 커밋에서 본문 조회 가능** |
+| 이전 Vercel 배포들 | 배포 기록·고유 URL 존재. 일부 로그인 요구, 일부 확인 실패 | 과거 배포의 모든 비로그인 열람 가능 여부는 **미확인** |
+
+이 표는 기록된 날짜와 커밋에 대한 검사 결과입니다. 이후 배포까지 자동 검증했다는 의미는 아닙니다.
 
 ### 5. 남은 약점 및 결론
 
-1. **현재 공개 API 노출:** `GET /api/notes`는 인증·인가 없이 가상 메모 4건을 반환합니다. Vercel의 서버 전용 `SUPABASE_SECRET_KEY`가 브라우저에 전달되지 않는다고 해서 API 응답이 비공개인 것은 아닙니다. 실제 개인정보나 실제 학생 기록을 넣지 않습니다.
-2. **과거 공개 이력 잔존:** 최신 `/data.json`의 404와 최신 Git 파일의 검색 0건은 **과거 커밋·과거 배포·캐시·제3자 복사본의 노출을 없앤 증거가 아닙니다.** 옛 공개 커밋과 옛 배포가 남는 한 **과거 노출이 해소됐다고 기록하지 않습니다.**
-3. **검사 범위의 한계:** 이 기록은 확인한 공개 저장소·배포 URL·자기 점검 결과에만 해당합니다. 모든 과거 배포를 확인했거나 심판이 최종 합격 판정을 내렸다는 뜻은 아닙니다.
+1. **현재 공개 API 노출:** `GET /api/notes`는 인증·인가 없이 가상 메모 4건을 반환합니다. 서버 전용 `SUPABASE_SECRET_KEY`가 브라우저에 전달되지 않는다고 API 응답이 비공개인 것은 아닙니다. 실제 개인정보나 학생 기록을 넣지 않습니다.
+2. **과거 공개 이력 잔존:** 최신 `/data.json`의 404와 현재 추적 파일 검색 0건은 **과거 커밋·과거 배포·캐시·제3자 복사본의 노출을 없앤 증거가 아닙니다. 옛 공개 커밋과 옛 배포가 남는 한 과거 노출이 해소됐다고 기록하지 않습니다.**
+3. **검사 범위의 한계:** 확인한 공개 저장소·배포 URL·자기 점검 결과에만 해당합니다. 모든 과거 배포를 확인했거나 공식 심판이 합격 판정을 내렸다는 뜻은 아닙니다.
+
+---
+
+## 2단계 저장점 (2026-10-28)
+
+### 1. 현재 작동하는 기능
+
+- Supabase `public.study_notes`에서 실습용 가상 메모 4건을 `GET /api/notes`로 조회합니다.
+- 홈페이지 `/`에서 가상 메모 카드를 표시합니다.
+- 확인 당시 배포 `/data.json`은 HTTP 404를 반환합니다.
+- `/aleph.json`으로 단계·저장소·배포 커밋을 확인합니다.
+- 서버 전용 Supabase 비밀키는 브라우저 코드나 API 응답에 넣지 않습니다.
+- 가상 메모 원문 검색 결과와 과거 노출 이력을 README에 기록합니다.
+
+### 2. 다시 실행하는 방법
+
+Windows CMD의 저장소 루트에서 실행합니다. Node.js 22 이상을 사용합니다.
+
+```cmd
+npm ci
+npm run build -- --local
+npm run test:r5
+npm run test:package
+node --test test/notes.test.mjs
+npm run bundle
+```
+
+- `npm ci`: 잠금 파일을 기준으로 의존성을 설치합니다.
+- `npm run build -- --local`: 로컬 공개 파일을 빌드하며 운영 배포 완료를 의미하지 않습니다.
+- `npm run test:r5`: 방어전 R5 관련 로컬 테스트를 수행합니다.
+- `npm run test:package`: 패키징 기준 테스트를 수행합니다.
+- `node --test test/notes.test.mjs`: 메모 API의 로컬 테스트를 수행합니다.
+- `npm run bundle`: 최신 로컬 커밋을 기준으로 제출 묶음 JSON을 생성하고 자기 점검을 실행합니다.
+
+`npm run bundle` 실행 전 Git 작업 폴더에 커밋되지 않은 변경이 없어야 합니다. `bundle-notes.json`은 로컬 제출 설명 자료이고, `artifacts/submission.json`은 생성되는 제출 결과물입니다. **두 파일은 Git 커밋에 포함하지 않습니다.**
+
+### 3. 설정 확인
+
+| 항목 | 현재 설정 |
+| --- | --- |
+| `step` | `2` |
+| `repoUrl` | `https://github.com/bonsago123-cloud/choi-bujang-secret-vault` |
+| `publicAppUrl` | `https://choi-bujang-secret-vault-one-theta.vercel.app` |
+| `judgeIssuer` | 기존 방어전 운영 측 설정 유지 (변경하지 않음) |
+| `identityProvider` | `null` |
+| `allowedRoutes` | `[]` |
+| `originalApiUrl` | `null` |
+| `restoreRoute` | `null` |
+
+`identityProvider`, `allowedRoutes`, `originalApiUrl`, `restoreRoute`는 이후 단계에서 사용하는 미구현 설정입니다. `src/decider.mjs`의 현재 규칙 이름 `RULE_IDS`는 시작 틀의 `starter.deny` 한 개입니다. 실제 사용자별 허용 정책이 구현된 것은 아닙니다.
+
+### 4. 자기 점검 및 제출 묶음
+
+`src/attack-check.mjs`의 현재 2단계 점검은 비로그인 상태에서 **`/data.json`에 가상 메모 본문이 남아 있는지** 확인합니다. 이는 공개 `/api/notes`의 인증·인가까지 검사하는 것이 아니므로 둘을 구분해 기록합니다.
+
+제출 묶음의 형식은 다음과 같습니다.
+
+- 스키마: `aleph.defense.submission.v2`
+- 단계: `2`
+- 커밋: 제출 묶음을 생성하는 시점의 Git `HEAD`
+- 정책 규칙: `starter.deny`
+- 자기 점검: `anonymous_note_read` (`/data.json` 기준)
+- 생성 파일: `artifacts/submission.json`
+
+**새 저장점 커밋 이후 `npm run bundle`을 다시 실행**하여 실제 커밋 번호와 결과를 확인합니다. 실행하지 않은 점검을 완료했다고 기록하지 않으며, 제출 묶음 생성 자체를 공식 심판의 합격 판정이라고 쓰지 않습니다.
+
+### 5. 저장점의 남은 보안 약점
+
+1. **공개 API:** `/api/notes`는 아직 인증 없이 가상 메모 4건을 반환합니다.
+2. **과거 Git 이력:** 최초 공개 커밋의 `data.json`과 `public/data.json`에 가상 메모 본문이 남아 있습니다.
+3. **과거 배포:** 이전 배포 기록과 URL이 존재하지만 모든 과거 URL의 비로그인 접근 가능 여부는 확인되지 않았습니다.
+4. **인증·인가:** 사용자별 접근 통제는 이후 단계에서 구현해야 합니다.
+
+**현재 정적 파일 노출을 제거한 사실과 과거 공개 노출의 해결 여부는 별개입니다.** 과거 공개 이력이 남아 있는 동안 과거 노출이 해소됐다고 판단하거나 기록하지 않습니다.
+
+---
 
 원래의 다른 기능 및 시작 틀 계약은 유지합니다. [AGENTS.md](AGENTS.md)를 참고하세요.
