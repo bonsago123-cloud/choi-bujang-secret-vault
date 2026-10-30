@@ -1,3 +1,43 @@
+# BYTE BACK 방어전 R5 — 4단계 저장점 (2026-10-30)
+
+> **현재 설정 단계: 4단계.** 아래 3단계·2단계는 과거 시점의 기록이며 현행 권한을 설명하지 않습니다.
+
+## 현재 구현 및 확인된 사항
+
+- Supabase Auth 토큰을 서버에서 검증합니다. 브라우저가 지정한 사용자 ID나 소유자 ID를 권한 판단의 근거로 신뢰하지 않습니다.
+- `GET /api/notes`: `study_notes`의 기존 실습용 가상 메모를 확인된 `owner_id`로 필터링합니다. 현재 A 소유 4건, B 소유 1건이며 비로그인 요청은 거부합니다.
+- `GET /api/memos`, `POST /api/memos`: `user_notes`에서 본인 메모만 목록으로 반환하고, 추가 시 서버가 확인한 사용자 UUID를 `owner_id`에 기록합니다.
+- `GET /api/memos/:id`, `PUT /api/memos/:id`, `DELETE /api/memos/:id`: UUID와 `owner_id`를 함께 검사하므로 상대 메모를 찾거나 변경·삭제할 수 없도록 구현했습니다. 수정 시 요청 본문의 `owner_id`와 `id`를 거부하며 `{title,body}`를 받습니다. 개별 조회와 수정 응답은 `{id,title,body}`를 유지합니다.
+- **DB 측 4단계 RLS·권한 정책은 Supabase 대시보드에서 직접 적용했으며 읽기 전용으로 확인했습니다.** `db/stage4_memo_rls.sql`은 이를 재현·점검하기 위한 기록입니다. `anon`은 두 테이블 권한 없음, `authenticated`는 SELECT·INSERT·UPDATE·DELETE만 부여됩니다. 각 테이블에서 SELECT/INSERT/UPDATE/DELETE 정책 4개씩, 총 8개가 활성화됐습니다. 실제 메모 내용은 저장소에 기록하지 않습니다.
+- 비로그인 자기점검은 실제 HTTP 상태만 기록합니다. **실제 A/B 계정의 운영 API 교차 요청은 아직 독립적으로 수행하지 않았습니다.** 모의 테스트 통과를 공식 심판 판정이나 운영 교차 접근 검증으로 표시하지 않습니다.
+- 기존 `/data.json` 정적 배포는 차단되어 있고, `/aleph.json`이 배포 식별에 사용됩니다.
+
+## 실제 API 허용 경로
+
+`aleph.config.json`의 `allowedRoutes`에 다음 실제 구현 경로 6개를 기재했습니다.
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET | `/api/notes` | 소유자별 가상 메모 |
+| GET | `/api/memos` | 본인 메모 목록 |
+| POST | `/api/memos` | 본인 메모 추가 |
+| GET | `/api/memos/:id` | 소유자 확인 후 한 건 조회 |
+| PUT | `/api/memos/:id` | 소유자 확인 후 수정 |
+| DELETE | `/api/memos/:id` | 소유자 확인 후 삭제 |
+
+단계는 `4`, 배포 주소는 `https://choi-bujang-secret-vault-one-theta.vercel.app`, 인증 발급자는 기존 Supabase Auth 발급자이며 `judgeIssuer`는 변경하지 않았습니다. 아직 5단계 전이므로 `originalApiUrl`과 `restoreRoute`는 `null`입니다. `src/decider.mjs`의 `starter.deny`는 6단계 이전 기본 거부 규칙 그대로입니다.
+
+## 다시 실행하는 방법 (Windows CMD)
+
+```cmd
+npm ci && npm run build -- --local && npm run test:r5 && npm run test:package && node --test test/notes.test.mjs test/memos.test.mjs test/stage4-owner.test.mjs test/stage4-attack-check.test.mjs
+npm run bundle
+```
+
+`npm run bundle` 전에 Git 변경을 모두 검토하고 커밋하고, Git이 무시하는 로컬 `bundle-notes.json`에 가상의 설명을 입력해야 합니다. 생성된 `artifacts/submission.json`과 `bundle-notes.json`은 커밋하지 않습니다. 실질적인 A/B 운영 API 검증 및 UI의 B 계정 1건 표시 문제는 아직 남았습니다. 서버 비밀키, 토큰, 사용자 실명 및 메모 본문은 제출에 넣지 않습니다.
+
+---
+
 # BYTE BACK 방어전 R5 — 3단계 저장점 (2026-10-29)
 
 > **현재 운영 단계: 3단계.** 아래의 「2단계 기록」은 당시 상태를 보존한 과거 기록이며, 현재 접근 권한을 설명하지 않습니다.

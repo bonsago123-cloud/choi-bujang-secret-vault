@@ -1,7 +1,7 @@
 // Local self-check: only describe requests actually sent; not an official judge result.
 // Never include credentials, note contents, tokens or personal information in results.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3].includes(config.step)) throw new Error('이 단계의 공격 점검을 구현해 주세요.');
+  if (![1, 2, 3, 4].includes(config.step)) throw new Error('이 단계의 공격 점검을 구현해 주세요.');
   let app;
   try { app = new URL(config.publicAppUrl); }
   catch { throw new Error('aleph.config.json에 실제 배포 주소를 설정해 주세요.'); }
@@ -10,7 +10,7 @@ export async function runAttackChecks(config) {
     throw new Error('aleph.config.json의 배포 주소를 확인해 주세요.');
   }
 
-  if (config.step === 3) {
+  if (config.step === 3 || config.step === 4) {
     const requestOptions = { redirect: 'error', signal: AbortSignal.timeout(10000) };
     const [collection, sample] = await Promise.all([
       fetch(new URL('/api/memos', app), requestOptions),
