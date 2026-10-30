@@ -92,7 +92,10 @@ test('A creates, lists, reads, updates and deletes a UUID note; missing GET is 4
   currentUser = A;
   const fetched = await invoke(item, 'GET', { id: NOTE });
   assert.deepEqual(fetched.payload, { id: NOTE, title: '가상 메모 A', body: '본문 A' });
-  const changed = await invoke(item, 'PUT', { id: NOTE, body: { title: '수정 A', body: '새 내용 A', owner_id: B } });
+  const forged = await invoke(item, 'PUT', { id: NOTE, body: { title: '수정 A', body: '새 내용 A', owner_id: B } });
+  assert.equal(forged.statusCode, 400); // ownership transfer attempts must be rejected
+  assert.equal(rows.get(NOTE).owner_id, A);
+  const changed = await invoke(item, 'PUT', { id: NOTE, body: { title: '수정 A', body: '새 내용 A' } });
   assert.equal(changed.statusCode, 200);
   assert.deepEqual(changed.payload, { id: NOTE, title: '수정 A', body: '새 내용 A' });
   assert.equal(rows.get(NOTE).owner_id, A);

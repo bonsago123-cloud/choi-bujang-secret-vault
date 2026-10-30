@@ -5,8 +5,8 @@ import { createLoginVerifier } from '../src/verify-login.mjs';
 const BEARER = /^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
-// Deliberate Stage 3 training vulnerability: no owner_id condition on ID routes.
-// An authenticated B who knows A's note UUID can GET, PUT or DELETE it.
+// Stage 4: use the server-verified identity as a row-level condition on
+// every item operation; a URL/body owner_id never establishes ownership.
 export function createMemoItemHandler({ verify, makeDb } = {}) {
   return async function handler(request, response) {
     response.setHeader('Cache-Control', 'no-store');
@@ -42,29 +42,37 @@ export function createMemoItemHandler({ verify, makeDb } = {}) {
       });
       if (request.method === 'GET') {
         const { data, error } = await supabase.from('user_notes')
-          .select('id,title,body').eq('id', id).maybeSingle();
+          .select('id,title,body').eq('id', id)
+          .eq('owner_id', identity.userId).maybeSingle();
         if (error) return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
         if (!data) return response.status(404).json({ error: 'NOT_FOUND' });
         return response.status(200).json({ id: data.id, title: data.title, body: data.body });
       }
       if (request.method === 'PUT') {
         let body;
-      try { body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body; }
-      catch { return response.status(400).json({ error: 'INVALID_NOTE' }); }
+        try { body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body; }
+        catch { return response.status(400).json({ error: 'INVALID_NOTE' }); }
         if (!body || typeof body !== 'object' || Array.isArray(body)
+            || Object.hasOwn(body, 'owner_id') || Object.hasOwn(body, 'id')
             || typeof body.title !== 'string' || !body.title.trim() || body.title.trim().length > 200
             || typeof body.body !== 'string' || body.body.length > 10000) {
           return response.status(400).json({ error: 'INVALID_NOTE' });
         }
         const { data, error } = await supabase.from('user_notes')
           .update({ title: body.title.trim(), body: body.body, updated_at: new Date().toISOString() })
-          .eq('id', id).select('id,title,body').maybeSingle();
+          .eq('id', id).eq('owner_id', identity.userId)
+          .select('id,title,body,owner_id').maybeSingle();
         if (error) return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
         if (!data) return response.status(404).json({ error: 'NOT_FOUND' });
+        // The server never updates owner_id, and checks the returned row's owner too.
+        if (data.owner_id !== identity.userId) {
+          return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
+        }
         return response.status(200).json({ id: data.id, title: data.title, body: data.body });
       }
       const { data, error } = await supabase.from('user_notes')
-        .delete().eq('id', id).select('id').maybeSingle();
+        .delete().eq('id', id).eq('owner_id', identity.userId)
+        .select('id').maybeSingle();
       if (error) return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
       if (!data) return response.status(404).json({ error: 'NOT_FOUND' });
       return response.status(200).json({ id: data.id });

@@ -6,8 +6,8 @@ import { createLoginVerifier } from '../src/verify-login.mjs';
 const BEARER = /^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
-// Stage 3 training: list only this user's notes, but do NOT check ownership on /:id.
-// The cross-account ID access will be examined and fixed in Stage 4.
+// Stage 4: list only the verified user's rows, and write the verified ID on insert.
+// The per-ID operations in memo.js enforce the same owner condition.
 export function createMemosHandler({ verify, makeDb, generateId = randomUUID } = {}) {
   return async function handler(request, response) {
     response.setHeader('Cache-Control', 'no-store');
