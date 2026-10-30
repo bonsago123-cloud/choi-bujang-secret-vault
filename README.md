@@ -1,6 +1,59 @@
-# BYTE BACK 방어전 R5 — 4단계 저장점 (2026-10-30)
+# BYTE BACK 방어전 R5 — 5단계 저장점 (2026-10-30)
 
-> **현재 설정 단계: 4단계.** 아래 3단계·2단계는 과거 시점의 기록이며 현행 권한을 설명하지 않습니다.
+> **현재 설정 단계: 5단계.** 아래 4·3·2단계 절은 각 단계 당시 기록이며 현행 데이터베이스 직접 권한을 나타내지 않습니다. 5단계 공식 심판 결과는 아직 이 문서에 기록하지 않았습니다.
+
+## 1. 현재 작동하는 기능
+
+- Supabase Auth로 로그인·로그아웃하며 서버의 `src/verify-login.mjs`가 로그인 토큰을 검증합니다. 브라우저가 보낸 임의 사용자 ID를 권한 판단에 사용하지 않습니다.
+- 기존 가상 자료는 `GET /api/notes`로 조회하며, 서버가 확인한 `owner_id`로 필터링합니다. 기존 A 소유 4건, B 소유 1건을 유지합니다.
+- 새 사용자 메모는 `/api/memos` 및 `/api/memos/:id` 서버 함수에서 본인 메모만 목록·추가·조회·수정·삭제합니다. 서버는 각 요청에서 소유자를 확인합니다.
+- 브라우저 코드는 자료를 Supabase 테이블에서 직접 읽거나 변경하지 않습니다. Supabase SDK의 브라우저 호출은 로그인·로그아웃·세션(Auth)에 사용합니다.
+- 공개 `/data.json` 경로에는 가상 메모 원문을 제공하지 않고, `/aleph.json`은 배포 정보 식별에 사용합니다.
+
+## 2. 5단계 적용: 데이터 요청은 서버 API로 집중
+
+- **대상 테이블은 `public.study_notes`와 `public.user_notes` 두 개뿐입니다.** 실제 자료 삭제나 다른 테이블·함수·시퀀스 권한 수정은 하지 않았습니다.
+- 2026-10-30 학습 DB에서 `REVOKE ALL PRIVILEGES ... FROM PUBLIC, anon, authenticated`를 두 테이블에 적용했습니다. 적용 SQL은 `db/stage5_revoke_direct_access.sql`에 기록했습니다.
+- 적용 후 읽기 전용 SQL 검증: 두 테이블 모두 `anon`·`authenticated`의 SELECT/INSERT/UPDATE/DELETE 권한이 **모두 false**, `service_role`의 네 권한은 **모두 true**, RLS 활성화는 유지. `PUBLIC`·`anon`·`authenticated`의 명시적인 테이블 권한도 **0건**이었습니다.
+- 데이터베이스 검증 쿼리는 `db/stage5_verify_direct_access.sql`에 있습니다. Supabase Auth, 4단계 서버의 로그인·소유자 검사, 서버 전용 비밀 설정을 변경하지 않았습니다.
+- 권한 회수 이후 사용자가 A 계정 운영 화면에서 기존 가상 메모 4건과 자신의 메모 추가·조회·수정·삭제가 정상 작동한다고 보고했습니다. 이 사실은 **사용자 수행 검증**이며 이번 저장점에서 테스트 계정으로 API를 자동 재현한 것은 아닙니다.
+- **남은 확인:** 원본 Supabase REST 경로를 `anon` 키로 직접 요청한 실제 HTTP 상태는 이 저장점에서 아직 독립적으로 측정하지 않았습니다. 심판 결과나 5단계 만점을 추정하지 않습니다. 권한 검사상 직접 테이블 접근은 차단되어 있습니다.
+
+## 3. 설정과 자료 경로
+
+- `aleph.config.json`의 `step`: `5`
+- `publicAppUrl`: `https://choi-bujang-secret-vault-one-theta.vercel.app`
+- `originalApiUrl`: `https://xfvldqqajkfxahjdvieo.supabase.co/rest/v1/study_notes` (쿼리 문자열 없음)
+- `identityProvider`, `judgeIssuer`, 기존 `allowedRoutes` 6개 모두 유지. `restoreRoute`는 아직 `null`.
+- `src/decider.mjs`의 `starter.deny` 기본 규칙과 이후 단계의 자료도 변경하지 않았습니다.
+
+## 4. 재검증 방법 (Windows CMD, 저장소 루트)
+
+```cmd
+npm ci
+npm run build -- --local
+npm run test:r5
+npm run test:package
+node --test test/notes.test.mjs test/memos.test.mjs test/stage4-owner.test.mjs test/stage4-attack-check.test.mjs
+npm run bundle
+```
+
+- `npm ci`는 잠금 파일 기준 설치, `--local`은 배포 식별 없이 로컬 빌드, `npm run bundle`은 제출 묶음 생성 및 학생 자기점검입니다. 공식 채점과 다릅니다.
+- **`npm run bundle` 전에** 로컬 `git status`가 깨끗해야 하고 실제 변경을 검토한 뒤 커밋해야 합니다. `bundle-notes.json`과 `artifacts/submission.json`은 Git에 커밋하지 않습니다.
+- 웹 화면에서 A 계정의 본인 메모 읽기·추가·수정·삭제가 유지되는지 다시 확인합니다. 비로그인 서버 API는 HTTP 401로 거부되어야 합니다. 원본 REST의 `anon` 키 접근은 권한 부족으로 거부되어야 합니다.
+- 비밀키·액세스 토큰·개인정보·실제 메모 본문을 채팅·Git·README·제출 JSON에 쓰지 않습니다.
+
+## 5. 포트폴리오 메모 (문제 → 대응 → 검증)
+
+- **문제:** 로그인 사용자가 Supabase REST API를 직접 호출할 수 있으면 메모 자료에 대한 진입 경로가 서버 함수 이외에도 남습니다.
+- **대응:** 브라우저 자료 요청은 기존 서버 함수로 통일하고, 두 메모 테이블의 `PUBLIC`·`anon`·`authenticated` 직접 권한을 회수했습니다. 서버는 로그인 검증 및 `owner_id` 검사를 유지합니다.
+- **검증:** 실제 DB 권한 전후를 비교하여 클라이언트 역할의 권한 회수와 서버 역할 권한 유지를 확인했고, A 계정의 서버 API 경유 CRUD 유지도 사용자 화면에서 확인했습니다. `anon` 키 원본 HTTP 재검증은 별도 남았습니다.
+
+---
+
+# BYTE BACK 방어전 R5 — 4단계 저장점 (2026-10-30, 당시 기록)
+
+> 아래 4단계부터는 이전 시점 기록입니다. 현재 5단계 DB 직접 권한 상태를 설명하지 않습니다.
 
 ## 현재 구현 및 확인된 사항
 
@@ -9,7 +62,7 @@
 - `GET /api/memos`, `POST /api/memos`: `user_notes`에서 본인 메모만 목록으로 반환하고, 추가 시 서버가 확인한 사용자 UUID를 `owner_id`에 기록합니다.
 - `GET /api/memos/:id`, `PUT /api/memos/:id`, `DELETE /api/memos/:id`: UUID와 `owner_id`를 함께 검사하므로 상대 메모를 찾거나 변경·삭제할 수 없도록 구현했습니다. 수정 시 요청 본문의 `owner_id`와 `id`를 거부하며 `{title,body}`를 받습니다. 개별 조회와 수정 응답은 `{id,title,body}`를 유지합니다.
 - **DB 측 4단계 RLS·권한 정책은 Supabase 대시보드에서 직접 적용했으며 읽기 전용으로 확인했습니다.** `db/stage4_memo_rls.sql`은 이를 재현·점검하기 위한 기록입니다. `anon`은 두 테이블 권한 없음, `authenticated`는 SELECT·INSERT·UPDATE·DELETE만 부여됩니다. 각 테이블에서 SELECT/INSERT/UPDATE/DELETE 정책 4개씩, 총 8개가 활성화됐습니다. 실제 메모 내용은 저장소에 기록하지 않습니다.
-- 비로그인 자기점검은 실제 HTTP 상태만 기록합니다. **실제 A/B 계정의 운영 API 교차 요청은 아직 독립적으로 수행하지 않았습니다.** 모의 테스트 통과를 공식 심판 판정이나 운영 교차 접근 검증으로 표시하지 않습니다.
+- 비로그인 자기점검은 실제 HTTP 상태만 기록합니다. 2026-10-30 사용자가 A/B 화면에서 A 소유 기존 메모 4건·B 소유 1건, 양 계정의 신규 메모 분리 및 본인 추가·조회·수정을 확인했고, 양방향으로 상대 메모 UUID 조회가 HTTP 404였다고 보고했습니다. 상대 메모 UUID에 대한 운영 PUT/DELETE 및 본인 DELETE의 최신 운영 재검증은 별도 미확인입니다. 모의 테스트는 운영 검증과 구분합니다.
 - 기존 `/data.json` 정적 배포는 차단되어 있고, `/aleph.json`이 배포 식별에 사용됩니다.
 
 ## 실제 API 허용 경로
@@ -25,7 +78,7 @@
 | PUT | `/api/memos/:id` | 소유자 확인 후 수정 |
 | DELETE | `/api/memos/:id` | 소유자 확인 후 삭제 |
 
-단계는 `4`, 배포 주소는 `https://choi-bujang-secret-vault-one-theta.vercel.app`, 인증 발급자는 기존 Supabase Auth 발급자이며 `judgeIssuer`는 변경하지 않았습니다. 아직 5단계 전이므로 `originalApiUrl`과 `restoreRoute`는 `null`입니다. `src/decider.mjs`의 `starter.deny`는 6단계 이전 기본 거부 규칙 그대로입니다.
+4단계 당시 단계 값은 `4`, 배포 주소는 `https://choi-bujang-secret-vault-one-theta.vercel.app`였습니다. 인증 발급자 및 `judgeIssuer`는 변경하지 않았습니다. 5단계 이전 당시 `originalApiUrl`과 `restoreRoute`는 `null`이었습니다. `src/decider.mjs`의 `starter.deny`는 6단계 이전 기본 거부 규칙입니다.
 
 ## 다시 실행하는 방법 (Windows CMD)
 
@@ -34,13 +87,13 @@ npm ci && npm run build -- --local && npm run test:r5 && npm run test:package &&
 npm run bundle
 ```
 
-`npm run bundle` 전에 Git 변경을 모두 검토하고 커밋하고, Git이 무시하는 로컬 `bundle-notes.json`에 가상의 설명을 입력해야 합니다. 생성된 `artifacts/submission.json`과 `bundle-notes.json`은 커밋하지 않습니다. 실질적인 A/B 운영 API 검증 및 UI의 B 계정 1건 표시 문제는 아직 남았습니다. 서버 비밀키, 토큰, 사용자 실명 및 메모 본문은 제출에 넣지 않습니다.
+`npm run bundle` 전에 Git 변경을 모두 검토하고 커밋하고, Git이 무시하는 로컬 `bundle-notes.json`에 가상의 설명을 입력해야 합니다. 생성된 `artifacts/submission.json`과 `bundle-notes.json`은 커밋하지 않습니다. B 계정 1건 표시 문제는 4단계 화면 수정 커밋 `766300ec5c8a`의 변경 및 사용자 화면 확인으로 해결되었습니다. A/B 운영 화면 검증 범위는 위 기록과 같으며, 실행하지 않은 PUT/DELETE 교차 요청은 완료로 표시하지 않습니다. 서버 비밀키, 토큰, 사용자 실명 및 메모 본문은 제출에 넣지 않습니다.
 
 ---
 
 # BYTE BACK 방어전 R5 — 3단계 저장점 (2026-10-29)
 
-> **현재 운영 단계: 3단계.** 아래의 「2단계 기록」은 당시 상태를 보존한 과거 기록이며, 현재 접근 권한을 설명하지 않습니다.
+> **3단계 당시 기록입니다.** 현행 접근 권한은 문서 맨 위 5단계 기록을 참고하세요.
 
 ## 현재 작동하는 기능
 
