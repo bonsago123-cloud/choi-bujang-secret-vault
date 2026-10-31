@@ -1,3 +1,19 @@
+# BYTE BACK 방어전 R5 — 서버 로그인 보안 추가 (5단계)
+
+> 5단계 범위의 추가 수정입니다. 기존 데이터와 RLS/DB 권한은 변경하지 않습니다. 이 파일은 적용한 코드의 설명이며 실제 배포 성공이나 심판 결과를 증명하지 않습니다.
+
+- 브라우저의 Supabase SDK, 프로젝트 URL, 공개 API 키 및 JavaScript의 액세스 토큰 관리를 제거했습니다.
+- 로그인은 `POST /api/auth?action=login`, 세션 확인은 `GET /api/auth?action=session`, 로그아웃은 `POST /api/auth?action=logout`에서 처리합니다. 토큰은 JSON에 넣지 않고 `__Host-` 접두사의 `HttpOnly; Secure; SameSite=Strict` 쿠키로 관리합니다.
+- 만료된 액세스 토큰은 서버가 리프레시 토큰을 사용해 갱신합니다. 메모 조회와 변경은 서버가 로그인 신원을 검증하고 기존 `owner_id` 검사를 유지합니다. 쿠키 변경 요청은 설정된 정식 앱 Origin을 확인합니다.
+- 심판이 보내는 명시적인 Bearer 토큰은 기존 인증 방식대로 처리하고, 쿠키가 심판 토큰 검증에 사용되지 않도록 분리합니다. 기존 `aleph.config.json`의 단계·심판 발급자·기존 자료 API 경로는 유지합니다.
+- Supabase publishable key는 **공개 키**이며 `src/public-auth-key.mjs`에만 보관하고 HTML에는 포함하지 않습니다. 이 키를 숨기는 것만으로 보안성이 높아지는 것은 아닙니다.
+- 기존 로그인한 브라우저는 새로운 쿠키 방식으로 **한 번 다시 로그인**해야 합니다. 기존 A/B 계정 및 기존 메모는 DB에서 지우지 않습니다.
+- 기존 5단계 자기 점검은 HTML 키 추출 대신 서버 코드의 공개 키로 `anon` REST 상태를 확인하도록 갱신했습니다.
+- 재검증: `npm ci`, `npm run build -- --local`, `npm run test:r5`, `npm run test:package`, `node --test test/notes.test.mjs test/memos.test.mjs test/stage4-owner.test.mjs test/stage4-attack-check.test.mjs test/server-auth-cookie.test.mjs`.
+- 운영 확인은 배포 후 실제 A/B 계정 로그인/로그아웃, 자기 메모 CRUD, 상대 UUID 404, 비로그인 401, 쿠키 속성과 타 사이트에서의 POST 거부를 별도로 수행해야 합니다. 현 단계에서 확인하지 않은 결과를 성공이라 쓰지 않습니다.
+
+---
+
 # BYTE BACK 방어전 R5 — 5단계 저장점 (2026-10-30)
 
 > **현재 설정 단계: 5단계.** 아래 4·3·2단계 절은 각 단계 당시 기록이며 현행 데이터베이스 직접 권한을 나타내지 않습니다. 5단계 공식 심판 결과는 아직 이 문서에 기록하지 않았습니다.

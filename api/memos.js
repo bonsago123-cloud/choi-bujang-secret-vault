@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import config from '../aleph.config.json' with { type: 'json' };
 import { createLoginVerifier } from '../src/verify-login.mjs';
+import { cookieWriteForbidden, hasAuthCookie, identifyRequest } from '../src/server-auth.mjs';
 
 const BEARER = /^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
@@ -18,10 +19,15 @@ export function createMemosHandler({ verify, makeDb, generateId = randomUUID } =
       return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
     }
     const authorization = request.headers?.authorization ?? request.headers?.Authorization;
-    if (typeof authorization !== 'string' || !BEARER.test(authorization)) {
+    if (authorization !== undefined && (typeof authorization !== 'string' || !BEARER.test(authorization))
+        || (authorization === undefined && !hasAuthCookie(request))) {
       response.setHeader('WWW-Authenticate', 'Bearer');
       return response.status(401).json({ error: 'UNAUTHORIZED' });
     }
+    if (cookieWriteForbidden(request)) {
+      return response.status(403).json({ error: 'FORBIDDEN' });
+    }
+
     const url = process.env.SUPABASE_URL;
     const secretKey = process.env.SUPABASE_SECRET_KEY;
     if ((!url || !secretKey) && (!verify || !makeDb)) {
@@ -29,7 +35,7 @@ export function createMemosHandler({ verify, makeDb, generateId = randomUUID } =
     }
     try {
       const verifyLogin = verify ?? createLoginVerifier({ config, supabaseSecretKey: secretKey });
-      const identity = await verifyLogin(authorization);
+      const { identity } = await identifyRequest(request, response, verifyLogin);
       if (!identity || !UUID.test(identity.userId ?? '')) {
         response.setHeader('WWW-Authenticate', 'Bearer');
         return response.status(401).json({ error: 'UNAUTHORIZED' });

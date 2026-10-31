@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import config from '../aleph.config.json' with { type: 'json' };
 import { createLoginVerifier } from '../src/verify-login.mjs';
+import { cookieWriteForbidden, hasAuthCookie, identifyRequest } from '../src/server-auth.mjs';
 
 // Stage 4: read only the verified user's learning notes. Preserve /api/notes shape.
 const SAMPLE_TITLES = ['과제', '포트폴리오', '아침 리추얼', '훈련 행정 자료',
@@ -20,9 +21,13 @@ export function createNotesHandler({ verify, makeDb } = {}) {
     }
 
     const authorization = request.headers?.authorization ?? request.headers?.Authorization;
-    if (typeof authorization !== 'string' || !BEARER.test(authorization)) {
+    if (authorization !== undefined && (typeof authorization !== 'string' || !BEARER.test(authorization))
+        || (authorization === undefined && !hasAuthCookie(request))) {
       response.setHeader('WWW-Authenticate', 'Bearer');
       return response.status(401).json({ error: 'UNAUTHORIZED' });
+    }
+    if (cookieWriteForbidden(request)) {
+      return response.status(403).json({ error: 'FORBIDDEN' });
     }
 
     const url = process.env.SUPABASE_URL;
@@ -33,7 +38,7 @@ export function createNotesHandler({ verify, makeDb } = {}) {
 
     try {
       const verifyLogin = verify ?? createLoginVerifier({ config, supabaseSecretKey: secretKey });
-      const verifiedIdentity = await verifyLogin(authorization);
+      const { identity: verifiedIdentity } = await identifyRequest(request, response, verifyLogin);
       if (!verifiedIdentity || !UUID.test(verifiedIdentity.userId ?? '')) {
         response.setHeader('WWW-Authenticate', 'Bearer');
         return response.status(401).json({ error: 'UNAUTHORIZED' });

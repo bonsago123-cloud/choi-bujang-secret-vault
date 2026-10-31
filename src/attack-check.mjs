@@ -1,3 +1,4 @@
+import { PUBLISHABLE_KEY } from './public-auth-key.mjs';
 // Local self-check: only describe requests actually sent; not an official judge result.
 // Never include credentials, note contents, tokens or personal information in results.
 export async function runAttackChecks(config) {
@@ -27,11 +28,8 @@ export async function runAttackChecks(config) {
 
     const requestOptions = { redirect: 'error', signal: AbortSignal.timeout(10000) };
     // The publishable key is already public in the browser app; never print the key.
-    const homepage = await fetch(app, requestOptions);
-    if (!homepage.ok) throw new Error('배포 홈페이지에서 공개 API 키를 확인하지 못했습니다.');
-    const html = await homepage.text();
-    const key = /\bconst PUBLISHABLE_KEY\s*=\s*['"](sb_publishable_[A-Za-z0-9_-]+)['"]/u.exec(html)?.[1];
-    if (!key) throw new Error('배포 홈페이지에서 Supabase 공개 키를 찾지 못했습니다.');
+    // Use the same public anon key for a true direct-access check, without publishing it in HTML.
+    const key = PUBLISHABLE_KEY;
 
     const [direct, collection, sample] = await Promise.all([
       fetch(original, { ...requestOptions, headers: { apikey: key, Accept: 'application/json' } }),

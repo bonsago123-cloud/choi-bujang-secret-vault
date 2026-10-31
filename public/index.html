@@ -35,7 +35,7 @@
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 4단계 사용자별 접근 통제</div>
+    <div class="eyebrow">BYTE BACK · 5단계 서버 로그인 및 사용자별 접근 통제</div>
     <h1>내 자료실</h1>
     <p>로그인한 사용자에게만 서버 API가 학습용 가상 메모를 제공합니다.</p>
     <div class="notice">자료 API는 서버에서 로그인 토큰을 검증합니다. 로그인하지 않으면 자료를 반환하지 않습니다.</div>
@@ -78,350 +78,321 @@
     <ul id="notes" aria-live="polite"><li>로그인하면 가상 메모를 불러옵니다.</li></ul>
   </main>
 
-  <!-- Supabase 공식 JavaScript SDK의 브라우저용 배포본 (고정된 버전) -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
   <script type="module">
-    // Project URL과 publishable key는 공개용 설정입니다. secret/service_role 키는 절대 넣지 않습니다.
-    const PROJECT_URL = 'https://xfvldqqajkfxahjdvieo.supabase.co';
-    const PUBLISHABLE_KEY = 'sb_publishable_wKlA4BCO8nIudFmfunIaSg_CiyaGqDt';
-    const form = document.querySelector('#login-form');
-    const emailInput = document.querySelector('#login-email');
-    const passwordInput = document.querySelector('#login-password');
-    const loginButton = document.querySelector('#login-button');
-    const loggedIn = document.querySelector('#logged-in');
-    const loggedInEmail = document.querySelector('#logged-in-email');
-    const logoutButton = document.querySelector('#logout-button');
-    const status = document.querySelector('#auth-status');
-    const errorMessage = document.querySelector('#auth-error');
-    const notesList = document.querySelector('#notes');
-    let notesRequestVersion = 0;
-    let memosRequestVersion = 0;
-    const memosSection = document.querySelector('#memos-section');
-    const memoForm = document.querySelector('#memo-form');
-    const memoTitle = document.querySelector('#memo-title');
-    const memoBody = document.querySelector('#memo-body');
-    const memoSave = document.querySelector('#memo-save');
-    const memoCancel = document.querySelector('#memo-cancel');
-    const memoMessage = document.querySelector('#memo-message');
-    const myMemos = document.querySelector('#my-memos');
-    let editingId = null;
-    let authClient;
+// The browser has no Supabase project key or Auth token. Auth is server-managed.
+const form = document.querySelector('#login-form');
+const emailInput = document.querySelector('#login-email');
+const passwordInput = document.querySelector('#login-password');
+const loginButton = document.querySelector('#login-button');
+const loggedIn = document.querySelector('#logged-in');
+const loggedInEmail = document.querySelector('#logged-in-email');
+const logoutButton = document.querySelector('#logout-button');
+const status = document.querySelector('#auth-status');
+const errorMessage = document.querySelector('#auth-error');
+const notesList = document.querySelector('#notes');
+const memosSection = document.querySelector('#memos-section');
+const memoForm = document.querySelector('#memo-form');
+const memoTitle = document.querySelector('#memo-title');
+const memoBody = document.querySelector('#memo-body');
+const memoSave = document.querySelector('#memo-save');
+const memoCancel = document.querySelector('#memo-cancel');
+const memoMessage = document.querySelector('#memo-message');
+const myMemos = document.querySelector('#my-memos');
+let editingId = null;
+let currentUser = null;
+let notesRequestVersion = 0;
+let memosRequestVersion = 0;
+let sessionPromise = null;
 
-    function showError(message) {
-      errorMessage.textContent = message;
-      errorMessage.hidden = false;
+function showError(message) {
+  errorMessage.textContent = message;
+  errorMessage.hidden = false;
+}
+function clearError() {
+  errorMessage.textContent = '';
+  errorMessage.hidden = true;
+}
+function renderAuth(user) {
+  currentUser = user;
+  const isLoggedIn = Boolean(user);
+  form.hidden = isLoggedIn;
+  memosSection.hidden = !isLoggedIn;
+  if (!isLoggedIn) {
+    editingId = null;
+    memoForm.reset();
+    memoSave.textContent = '메모 추가';
+    memoCancel.hidden = true;
+    memoMessage.textContent = '';
+  }
+  loggedIn.hidden = !isLoggedIn;
+  loggedInEmail.textContent = isLoggedIn ? `로그인 계정: ${user.email || '이메일 미제공'}` : '';
+  status.textContent = isLoggedIn ? '로그인 상태입니다.' : '로그아웃 상태입니다. 이메일로 로그인하세요.';
+}
+function setBusy(busy) {
+  loginButton.disabled = busy;
+  logoutButton.disabled = busy;
+  emailInput.disabled = busy;
+  passwordInput.disabled = busy;
+}
+function showNotesMessage(message) {
+  const item = document.createElement('li');
+  item.textContent = message;
+  notesList.replaceChildren(item);
+}
+function showMemosMessage(message) {
+  const item = document.createElement('li');
+  item.textContent = message;
+  myMemos.replaceChildren(item);
+}
+
+async function getServerSession() {
+  const response = await fetch('/api/auth?action=session', {
+    credentials: 'same-origin', cache: 'no-store',
+  });
+  if (response.status === 401) return null;
+  if (!response.ok) throw new Error('로그인 상태를 확인할 수 없습니다.');
+  const data = await response.json();
+  if (!data.user || typeof data.user.email !== 'string') {
+    throw new Error('로그인 상태 응답이 올바르지 않습니다.');
+  }
+  return data.user;
+}
+async function singleSessionCheck() {
+  if (!sessionPromise) {
+    sessionPromise = getServerSession().finally(() => { sessionPromise = null; });
+  }
+  return sessionPromise;
+}
+// Automatically retry once if the server refreshes an expired HttpOnly session.
+async function authFetch(path, options = {}) {
+  const settings = { credentials: 'same-origin', cache: 'no-store', ...options };
+  let response = await fetch(path, settings);
+  if (response.status === 401 && currentUser) {
+    const previousUser = currentUser;
+    const fresh = await singleSessionCheck();
+    if (fresh && currentUser === previousUser) {
+      response = await fetch(path, settings);
+    } else if (!fresh && currentUser === previousUser) {
+      renderAuth(null);
+      void loadNotes(false);
+      void loadUserMemos(false);
     }
-    function clearError() {
-      errorMessage.textContent = '';
-      errorMessage.hidden = true;
+  }
+  return response;
+}
+
+async function loadNotes(active) {
+  const version = ++notesRequestVersion;
+  if (!active) {
+    showNotesMessage('로그인하면 가상 메모를 볼 수 있습니다.');
+    return;
+  }
+  showNotesMessage('가상 메모를 불러오는 중입니다.');
+  try {
+    const response = await authFetch('/api/notes');
+    if (version !== notesRequestVersion) return;
+    if (response.status === 401) {
+      showNotesMessage('로그인이 만료됐습니다. 다시 로그인해 주세요.');
+      return;
     }
-    function renderAuth(user) {
-      const isLoggedIn = Boolean(user);
-      form.hidden = isLoggedIn;
-      memosSection.hidden = !isLoggedIn;
-      if (!isLoggedIn) {
-        editingId = null;
-        memoForm.reset();
-        memoSave.textContent = '메모 추가';
-        memoCancel.hidden = true;
-        memoMessage.textContent = '';
+    if (!response.ok) throw new Error('메모를 불러오지 못했습니다. 서버 설정을 확인해 주세요.');
+    const data = await response.json();
+    if (version !== notesRequestVersion) return;
+    if (!Array.isArray(data.notes) || data.notes.length > 5) {
+      throw new Error('가상 메모 목록 형식이 올바르지 않습니다.');
+    }
+    if (data.notes.length === 0) {
+      showNotesMessage('이 계정의 가상 메모가 없습니다.');
+      return;
+    }
+    const cards = data.notes.map(note => {
+      if (typeof note.title !== 'string' || typeof note.content !== 'string') {
+        throw new Error('메모 형식이 올바르지 않습니다.');
       }
-      loggedIn.hidden = !isLoggedIn;
-      loggedInEmail.textContent = isLoggedIn ? `로그인 계정: ${user.email || '이메일 미제공'}` : '';
-      status.textContent = isLoggedIn ? '로그인 상태입니다.' : '로그아웃 상태입니다. 이메일로 로그인하세요.';
-    }
-    function setBusy(busy) {
-      loginButton.disabled = busy;
-      logoutButton.disabled = busy;
-      emailInput.disabled = busy;
-      passwordInput.disabled = busy;
-    }
-
-    function showNotesMessage(message) {
-      const item = document.createElement('li');
-      item.textContent = message;
-      notesList.replaceChildren(item);
-    }
-
-    // Only the Supabase SDK session token goes to the API. The server verifies it.
-    // A sequence number prevents in-flight responses from reappearing after logout.
-    async function loadNotes(accessToken) {
-      const requestVersion = ++notesRequestVersion;
-      if (!accessToken) {
-        showNotesMessage('로그인하면 가상 메모를 볼 수 있습니다.');
-        return;
-      }
-      showNotesMessage('가상 메모를 불러오는 중입니다.');
-      try {
-        const response = await fetch('/api/notes', {
-          method: 'GET',
-          cache: 'no-store',
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (requestVersion !== notesRequestVersion) return;
-        if (response.status === 401) {
-          showNotesMessage('로그인 인증이 유효하지 않습니다. 다시 로그인해 주세요.');
-          return;
-        }
-        if (!response.ok) throw new Error('메모를 불러오지 못했습니다. 서버 설정을 확인해 주세요.');
-        const data = await response.json();
-        if (requestVersion !== notesRequestVersion) return;
-        if (!Array.isArray(data.notes) || data.notes.length > 5) {
-          throw new Error('가상 메모 목록 형식이 올바르지 않습니다.');
-        }
-        if (data.notes.length === 0) {
-          showNotesMessage('이 계정의 가상 메모가 없습니다.');
-          return;
-        }
-        const cards = data.notes.map((note) => {
-          if (typeof note.title !== 'string' || typeof note.content !== 'string') {
-            throw new Error('메모의 형식이 올바르지 않습니다.');
-          }
-          const card = document.createElement('li');
-          const title = document.createElement('strong');
-          const content = document.createElement('span');
-          title.textContent = note.title;
-          content.textContent = note.content;
-          card.append(title, content);
-          return card;
-        });
-        notesList.replaceChildren(...cards);
-      } catch (error) {
-        if (requestVersion === notesRequestVersion) {
-          showNotesMessage(error.message || '자료 요청에 실패했습니다.');
-        }
-      }
-    }
-
-
-    async function memoRequest(path, method = 'GET', body = undefined, tokenOverride = null) {
-      const token = tokenOverride || (await authClient.auth.getSession()).data.session?.access_token;
-      if (!token) throw new Error('로그인 세션이 없습니다. 다시 로그인해 주세요.');
-      const result = await fetch(path, {
-        method,
-        cache: 'no-store',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-      if (result.status === 401) throw new Error('로그인이 만료됐습니다. 다시 로그인해 주세요.');
-      if (result.status === 404) throw new Error('해당 메모가 없습니다.');
-      if (!result.ok) throw new Error(`메모 요청이 실패했습니다. (HTTP ${result.status})`);
-      return result.json();
-    }
-
-    async function loadUserMemos(accessToken) {
-      const version = ++memosRequestVersion;
-      if (!accessToken) {
-        myMemos.replaceChildren();
-        return;
-      }
-      const message = document.createElement('li');
-      message.textContent = '내 메모를 불러오는 중입니다.';
-      myMemos.replaceChildren(message);
-      try {
-        const items = await memoRequest('/api/memos', 'GET', undefined,
-          typeof accessToken === 'string' ? accessToken : null);
-        if (version !== memosRequestVersion) return;
-        if (!Array.isArray(items)) throw new Error('메모 목록 형식이 올바르지 않습니다.');
-        if (items.length === 0) {
-          message.textContent = '아직 작성한 메모가 없습니다.';
-          return;
-        }
-        const elements = items.map(item => {
-          const li = document.createElement('li');
-          const heading = document.createElement('strong');
-          heading.textContent = item.title;
-          const content = document.createElement('span');
-          content.textContent = item.body;
-          const identifier = document.createElement('p');
-          identifier.className = 'note-meta';
-          identifier.textContent = `메모 ID: ${item.id}`;
-          const actions = document.createElement('div');
-          actions.className = 'note-controls';
-          const edit = document.createElement('button');
-          edit.type = 'button';
-          edit.textContent = '수정';
-          edit.addEventListener('click', async () => {
-            memoMessage.textContent = '';
-            try {
-              const current = await memoRequest(`/api/memos/${encodeURIComponent(item.id)}`);
-              if (version !== memosRequestVersion) return;
-              editingId = current.id;
-              memoTitle.value = current.title;
-              memoBody.value = current.body;
-              memoSave.textContent = '수정 저장';
-              memoCancel.hidden = false;
-              memoTitle.focus();
-            } catch (error) {
-              memoMessage.textContent = error.message;
-            }
-          });
-          const remove = document.createElement('button');
-          remove.type = 'button';
-          remove.textContent = '삭제';
-          remove.addEventListener('click', async () => {
-            if (!window.confirm('이 가상 메모를 삭제할까요?')) return;
-            memoMessage.textContent = '';
-            try {
-              await memoRequest(`/api/memos/${encodeURIComponent(item.id)}`, 'DELETE');
-              if (editingId === item.id) resetMemoForm();
-              memoMessage.textContent = '메모를 삭제했습니다.';
-              await loadUserMemos(true);
-            } catch (error) {
-              memoMessage.textContent = error.message;
-            }
-          });
-          actions.append(edit, remove);
-          li.append(heading, content, identifier, actions);
-          return li;
-        });
-        myMemos.replaceChildren(...elements);
-      } catch (error) {
-        if (version === memosRequestVersion) {
-          message.textContent = error.message;
-          myMemos.replaceChildren(message);
-        }
-      }
-    }
-
-    function resetMemoForm() {
-      editingId = null;
-      memoForm.reset();
-      memoSave.textContent = '메모 추가';
-      memoCancel.hidden = true;
-    }
-
-    memoCancel.addEventListener('click', resetMemoForm);
-    memoForm.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      memoMessage.textContent = '';
-      memoSave.disabled = true;
-      try {
-        const title = memoTitle.value.trim();
-        const body = memoBody.value;
-        const path = editingId ? `/api/memos/${encodeURIComponent(editingId)}` : '/api/memos';
-        const method = editingId ? 'PUT' : 'POST';
-        await memoRequest(path, method, { title, body });
-        resetMemoForm();
-        memoMessage.textContent = method === 'POST' ? '메모를 추가했습니다.' : '메모를 수정했습니다.';
-        await loadUserMemos(true);
-      } catch (error) {
-        memoMessage.textContent = error.message;
-      } finally {
-        memoSave.disabled = false;
-      }
+      const card = document.createElement('li');
+      const title = document.createElement('strong');
+      const content = document.createElement('span');
+      title.textContent = note.title;
+      content.textContent = note.content;
+      card.append(title, content);
+      return card;
     });
+    notesList.replaceChildren(...cards);
+  } catch (error) {
+    if (version === notesRequestVersion) showNotesMessage(error.message || '자료 요청에 실패했습니다.');
+  }
+}
 
-    // If the SDK cannot load, no unauthenticated notes request is issued.
+async function memoRequest(path, method = 'GET', body = undefined) {
+  const response = await authFetch(path, {
+    method,
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (response.status === 401) throw new Error('로그인이 만료됐습니다. 다시 로그인해 주세요.');
+  if (response.status === 403) throw new Error('보안 검사가 요청을 거부했습니다.');
+  if (response.status === 404) throw new Error('해당 메모가 없습니다.');
+  if (!response.ok) throw new Error(`메모 요청이 실패했습니다. (HTTP ${response.status})`);
+  return response.json();
+}
 
-    if (!window.supabase?.createClient) {
-      status.textContent = '로그인 기능을 불러오지 못했습니다.';
-      showError('Supabase 로그인 SDK 연결에 실패했습니다. 네트워크를 확인한 뒤 새로고침하세요.');
-    } else {
-      authClient = window.supabase.createClient(PROJECT_URL, PUBLISHABLE_KEY);
-
-      // 토큰은 SDK가 관리하며 직접 만들거나 출력하지 않습니다.
-      authClient.auth.onAuthStateChange((event, session) => {
-        if (['SIGNED_IN', 'SIGNED_OUT', 'INITIAL_SESSION', 'TOKEN_REFRESHED'].includes(event)) {
-          renderAuth(session?.user ?? null);
-          void loadNotes(session?.access_token ?? null);
-          void loadUserMemos(session?.access_token ?? null);
-          if (event === 'SIGNED_OUT') clearError();
-        }
-      });
-
-      try {
-        const { data, error } = await authClient.auth.getUser();
-        if (error && error.code !== 'session_not_found') {
-          // 유효하지 않은 기존 세션은 로그인 상태로 취급하지 않습니다.
-          renderAuth(null);
-          void loadNotes(null);
-          void loadUserMemos(null);
-        } else {
-          renderAuth(data.user ?? null);
-          const { data: sessionData } = await authClient.auth.getSession();
-          void loadNotes(data.user ? sessionData.session?.access_token : null);
-          void loadUserMemos(data.user ? sessionData.session?.access_token : null);
-        }
-      } catch {
-        renderAuth(null);
-        void loadNotes(null);
-        showError('로그인 상태 확인에 실패했습니다. 네트워크 연결을 확인하세요.');
-      }
-
-      form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        clearError();
-        setBusy(true);
-        status.textContent = '로그인 요청 중...';
-        try {
-          const { data, error } = await authClient.auth.signInWithPassword({
-            email: emailInput.value.trim(),
-            password: passwordInput.value,
-          });
-          // 화면에서 입력한 비밀번호를 로그인 시도 후 즉시 비웁니다.
-          passwordInput.value = '';
-          if (error) {
-            renderAuth(null);
-            void loadNotes(null);
-          void loadUserMemos(null);
-            showError(`로그인 실패: ${error.message}`);
-            return;
-          }
-          if (!data.user) {
-            renderAuth(null);
-            void loadNotes(null);
-          void loadUserMemos(null);
-            showError('로그인 실패: 사용자 정보를 확인하지 못했습니다.');
-            return;
-          }
-          renderAuth(data.user);
-          void loadNotes(data.session?.access_token ?? null);
-          void loadUserMemos(data.session?.access_token ?? null);
-          status.textContent = '로그인에 성공했습니다.';
-        } catch (error) {
-          passwordInput.value = '';
-          renderAuth(null);
-          void loadNotes(null);
-          void loadUserMemos(null);
-          showError(`로그인 실패: ${error.message || '네트워크 연결을 확인하세요.'}`);
-        } finally {
-          setBusy(false);
-        }
-      });
-
-      logoutButton.addEventListener('click', async () => {
-        clearError();
-        setBusy(true);
-        status.textContent = '로그아웃 요청 중...';
-        void loadNotes(null);
-        try {
-          const { error } = await authClient.auth.signOut({ scope: 'local' });
-          if (error) {
-            status.textContent = '로그인 상태입니다.';
-            showError(`로그아웃 실패: ${error.message}`);
-            const { data: sessionData } = await authClient.auth.getSession();
-            void loadNotes(sessionData.session?.access_token ?? null);
-            void loadUserMemos(sessionData.session?.access_token ?? null);
-            return;
-          }
-          renderAuth(null);
-          void loadNotes(null);
-          void loadUserMemos(null);
-          status.textContent = '로그아웃했습니다.';
-        } catch (error) {
-          status.textContent = '로그인 상태입니다.';
-          showError(`로그아웃 실패: ${error.message || '네트워크 연결을 확인하세요.'}`);
-          const { data: sessionData } = await authClient.auth.getSession();
-          void loadNotes(sessionData.session?.access_token ?? null);
-        } finally {
-          setBusy(false);
-        }
-      });
+async function loadUserMemos(active) {
+  const version = ++memosRequestVersion;
+  if (!active) {
+    myMemos.replaceChildren();
+    return;
+  }
+  showMemosMessage('내 메모를 불러오는 중입니다.');
+  try {
+    const items = await memoRequest('/api/memos');
+    if (version !== memosRequestVersion) return;
+    if (!Array.isArray(items)) throw new Error('메모 목록 형식이 올바르지 않습니다.');
+    if (items.length === 0) {
+      showMemosMessage('아직 작성한 메모가 없습니다.');
+      return;
     }
+    const elements = items.map(item => {
+      const li = document.createElement('li');
+      const heading = document.createElement('strong');
+      heading.textContent = item.title;
+      const content = document.createElement('span');
+      content.textContent = item.body;
+      const identifier = document.createElement('p');
+      identifier.className = 'note-meta';
+      identifier.textContent = `메모 ID: ${item.id}`;
+      const actions = document.createElement('div');
+      actions.className = 'note-controls';
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.textContent = '수정';
+      edit.addEventListener('click', async () => {
+        memoMessage.textContent = '';
+        try {
+          const current = await memoRequest(`/api/memos/${encodeURIComponent(item.id)}`);
+          if (version !== memosRequestVersion) return;
+          editingId = current.id;
+          memoTitle.value = current.title;
+          memoBody.value = current.body;
+          memoSave.textContent = '수정 저장';
+          memoCancel.hidden = false;
+          memoTitle.focus();
+        } catch (error) { memoMessage.textContent = error.message; }
+      });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = '삭제';
+      remove.addEventListener('click', async () => {
+        if (!window.confirm('이 가상 메모를 삭제할까요?')) return;
+        memoMessage.textContent = '';
+        try {
+          await memoRequest(`/api/memos/${encodeURIComponent(item.id)}`, 'DELETE');
+          if (editingId === item.id) resetMemoForm();
+          memoMessage.textContent = '메모를 삭제했습니다.';
+          await loadUserMemos(true);
+        } catch (error) { memoMessage.textContent = error.message; }
+      });
+      actions.append(edit, remove);
+      li.append(heading, content, identifier, actions);
+      return li;
+    });
+    myMemos.replaceChildren(...elements);
+  } catch (error) {
+    if (version === memosRequestVersion) showMemosMessage(error.message);
+  }
+}
+
+function resetMemoForm() {
+  editingId = null;
+  memoForm.reset();
+  memoSave.textContent = '메모 추가';
+  memoCancel.hidden = true;
+}
+memoCancel.addEventListener('click', resetMemoForm);
+memoForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  memoMessage.textContent = '';
+  memoSave.disabled = true;
+  try {
+    const path = editingId ? `/api/memos/${encodeURIComponent(editingId)}` : '/api/memos';
+    const method = editingId ? 'PUT' : 'POST';
+    await memoRequest(path, method, { title: memoTitle.value.trim(), body: memoBody.value });
+    resetMemoForm();
+    memoMessage.textContent = method === 'POST' ? '메모를 추가했습니다.' : '메모를 수정했습니다.';
+    await loadUserMemos(true);
+  } catch (error) { memoMessage.textContent = error.message; }
+  finally { memoSave.disabled = false; }
+});
+
+form.addEventListener('submit', async event => {
+  event.preventDefault();
+  clearError();
+  setBusy(true);
+  status.textContent = '로그인 요청 중...';
+  try {
+    const response = await fetch('/api/auth?action=login', {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: emailInput.value.trim(), password: passwordInput.value }),
+    });
+    passwordInput.value = '';
+    if (!response.ok) {
+      renderAuth(null);
+      showError(response.status === 401 ? '로그인 정보가 올바르지 않습니다.'
+        : `로그인 요청에 실패했습니다. (HTTP ${response.status})`);
+      return;
+    }
+    const data = await response.json();
+    if (!data.user || typeof data.user.email !== 'string') {
+      throw new Error('로그인 응답 형식이 올바르지 않습니다.');
+    }
+    renderAuth(data.user);
+    void loadNotes(true);
+    void loadUserMemos(true);
+    status.textContent = '로그인에 성공했습니다.';
+  } catch (error) {
+    passwordInput.value = '';
+    renderAuth(null);
+    showError(error.message || '로그인 서버에 연결할 수 없습니다.');
+  } finally { setBusy(false); }
+});
+logoutButton.addEventListener('click', async () => {
+  clearError();
+  setBusy(true);
+  status.textContent = '로그아웃 요청 중...';
+  // Invalidate in-flight reads before the logout request finishes.
+  ++notesRequestVersion;
+  ++memosRequestVersion;
+  try {
+    const response = await fetch('/api/auth?action=logout', {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(`로그아웃 실패 (HTTP ${response.status})`);
+    renderAuth(null);
+    void loadNotes(false);
+    void loadUserMemos(false);
+    status.textContent = '로그아웃했습니다.';
+  } catch (error) {
+    showError(error.message || '로그아웃 요청에 실패했습니다.');
+    try {
+      const user = await singleSessionCheck();
+      renderAuth(user);
+      void loadNotes(Boolean(user));
+      void loadUserMemos(Boolean(user));
+    } catch { renderAuth(null); }
+  } finally { setBusy(false); }
+});
+
+try {
+  const user = await singleSessionCheck();
+  renderAuth(user);
+  void loadNotes(Boolean(user));
+  void loadUserMemos(Boolean(user));
+} catch (error) {
+  renderAuth(null);
+  void loadNotes(false);
+  void loadUserMemos(false);
+  showError(error.message || '로그인 상태를 확인하지 못했습니다.');
+}
   </script>
 
 </body>
