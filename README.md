@@ -1,3 +1,17 @@
+## 7단계 저장점 (2026-11-06) — 평소와 다른 접속은 다시 확인합니다
+
+- 현재 설정 단계: `7`; 이전 배포 주소, 인증 발급자, 심판 발급자, 허용 API 경로 및 원본 자료 API 주소는 유지합니다.
+- 현재 기능: 서버 기반 보안 쿠키 로그인, 사용자별 가상 메모와 개인 메모 CRUD, 소유자 검증 및 데이터베이스 직접 접근 차단을 유지합니다.
+- 판정 규칙 `device_registered`: 등록 기기만 허용하고 미등록 기기는 `deny / device_not_registered`로 거부합니다.
+- 판정 규칙 `step_up_required`: 심판의 **가상** 신호 `judge_fixture`에서 새벽 0~5시·평소와 다른 네트워크·자료 조회 경로·최근 5분 내 위험 사건 10회 이상이 함께 나타나고, 최근 120초 내 추가 확인이 없다면 `step_up / step_up_required`를 반환합니다.
+- 지역만 다른 경우 영구 차단하지 않습니다. 출처 `none`, 누락 또는 알 수 없는 입력은 임의의 정상 지역·시각·네트워크·행동으로 채우지 않으며, 위조 클라이언트 헤더를 판정 근거로 삼지 않습니다.
+- 정상 가상 사건은 `allow`, 복합 이상 가상 사건은 `step_up`, 최근 추가 확인을 마친 복합 가상 사건은 `allow`로 로컬 검사했습니다. 심판의 `judge_fixture`는 실제 위치/네트워크 증명이 아닙니다.
+- 재검증(저장소 루트): `npm.cmd run decider:test`, `npm.cmd run fixture:7`, `npm.cmd run test:r5`, `npm.cmd run test:package`, `node --test test/notes.test.mjs test/memos.test.mjs test/stage4-owner.test.mjs test/stage4-attack-check.test.mjs test/server-auth-cookie.test.mjs`.
+- 제출 자기 점검은 실제 HTTP 비로그인 자료 API 및 공개 anon 원본 API 응답 상태를 기록합니다. `npm.cmd run bundle`로 저장점 커밋 기준 `artifacts/submission.json`을 생성하며 공식 심판 채점과는 구분합니다.
+- 6단계 심판 100점은 사용자가 보고한 결과입니다. 아래 6단계 절의 '아직 미확인'은 당시 작성된 과거 기록으로 보존했습니다. 7단계 공식 심판 결과는 아직 확인하지 않았습니다.
+
+---
+
 ## 6단계 제출 설정 저장점 (2026-11-05)
 
 - 현재 설정 단계: `6`. 기존 배포 주소, 인증 발급자, 허용 API 경로, 원본 자료 API 설정은 보존합니다.

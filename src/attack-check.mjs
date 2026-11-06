@@ -2,7 +2,7 @@ import { PUBLISHABLE_KEY } from './public-auth-key.mjs';
 // Local self-check: only describe requests actually sent; not an official judge result.
 // Never include credentials, note contents, tokens or personal information in results.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6].includes(config.step)) throw new Error('이 단계의 공격 점검을 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6, 7].includes(config.step)) throw new Error('이 단계의 공격 점검을 구현해 주세요.');
   let app;
   try { app = new URL(config.publicAppUrl); }
   catch { throw new Error('aleph.config.json에 실제 배포 주소를 설정해 주세요.'); }
@@ -11,7 +11,7 @@ export async function runAttackChecks(config) {
     throw new Error('aleph.config.json의 배포 주소를 확인해 주세요.');
   }
 
-  if (config.step === 5 || config.step === 6) {
+  if (config.step === 5 || config.step === 6 || config.step === 7) {
     let original;
     let issuer;
     try {
