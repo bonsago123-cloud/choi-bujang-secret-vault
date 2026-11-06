@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { memoResourceId } from '../src/resource-ids.mjs';
 import config from '../aleph.config.json' with { type: 'json' };
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { cookieWriteForbidden, hasAuthCookie, identifyRequest } from '../src/server-auth.mjs';
@@ -13,6 +14,7 @@ export function createMemoItemHandler({ verify, makeDb } = {}) {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Vary', 'Authorization');
+    response.setHeader('X-Resource-ID', memoResourceId(request.query?.id));
     if (!['GET', 'PUT', 'DELETE'].includes(request.method)) {
       response.setHeader('Allow', 'GET, PUT, DELETE');
       return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
@@ -48,10 +50,11 @@ export function createMemoItemHandler({ verify, makeDb } = {}) {
       });
       if (request.method === 'GET') {
         const { data, error } = await supabase.from('user_notes')
-          .select('id,title,body').eq('id', id)
+          .select('id,title,body,owner_id').eq('id', id)
           .eq('owner_id', identity.userId).maybeSingle();
         if (error) return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
         if (!data) return response.status(404).json({ error: 'NOT_FOUND' });
+        if (data.owner_id !== identity.userId) return response.status(403).json({ error: 'ACCESS_DENIED' });
         return response.status(200).json({ id: data.id, title: data.title, body: data.body });
       }
       if (request.method === 'PUT') {
@@ -64,6 +67,13 @@ export function createMemoItemHandler({ verify, makeDb } = {}) {
             || typeof body.body !== 'string' || body.body.length > 10000) {
           return response.status(400).json({ error: 'INVALID_NOTE' });
         }
+        // Before modifying any row, verify its stored owner (in addition to the atomic owner filter).
+        const { data: ownerRow, error: ownerError } = await supabase.from('user_notes')
+          .select('owner_id').eq('id', id).maybeSingle();
+        if (ownerError) return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
+        if (!ownerRow || ownerRow.owner_id !== identity.userId) {
+          return response.status(404).json({ error: 'NOT_FOUND' });
+        }
         const { data, error } = await supabase.from('user_notes')
           .update({ title: body.title.trim(), body: body.body, updated_at: new Date().toISOString() })
           .eq('id', id).eq('owner_id', identity.userId)
@@ -72,15 +82,23 @@ export function createMemoItemHandler({ verify, makeDb } = {}) {
         if (!data) return response.status(404).json({ error: 'NOT_FOUND' });
         // The server never updates owner_id, and checks the returned row's owner too.
         if (data.owner_id !== identity.userId) {
-          return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
+          return response.status(403).json({ error: 'ACCESS_DENIED' });
         }
         return response.status(200).json({ id: data.id, title: data.title, body: data.body });
       }
+      // Check the stored owner before deletion; keep the owner condition on DELETE too.
+      const { data: ownerRow, error: ownerError } = await supabase.from('user_notes')
+        .select('owner_id').eq('id', id).maybeSingle();
+      if (ownerError) return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
+      if (!ownerRow || ownerRow.owner_id !== identity.userId) {
+        return response.status(404).json({ error: 'NOT_FOUND' });
+      }
       const { data, error } = await supabase.from('user_notes')
         .delete().eq('id', id).eq('owner_id', identity.userId)
-        .select('id').maybeSingle();
+        .select('id,owner_id').maybeSingle();
       if (error) return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
       if (!data) return response.status(404).json({ error: 'NOT_FOUND' });
+      if (data.owner_id !== identity.userId) return response.status(403).json({ error: 'ACCESS_DENIED' });
       return response.status(200).json({ id: data.id });
     } catch {
       return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });

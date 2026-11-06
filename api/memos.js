@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import { RESOURCE_IDS, memoResourceId } from '../src/resource-ids.mjs';
 import config from '../aleph.config.json' with { type: 'json' };
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { cookieWriteForbidden, hasAuthCookie, identifyRequest } from '../src/server-auth.mjs';
@@ -14,6 +15,7 @@ export function createMemosHandler({ verify, makeDb, generateId = randomUUID } =
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Vary', 'Authorization');
+    response.setHeader('X-Resource-ID', RESOURCE_IDS.personalMemos);
     if (!['GET', 'POST'].includes(request.method)) {
       response.setHeader('Allow', 'GET, POST');
       return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
@@ -46,11 +48,14 @@ export function createMemosHandler({ verify, makeDb, generateId = randomUUID } =
       });
       if (request.method === 'GET') {
         const { data, error } = await supabase.from('user_notes')
-          .select('id,title,body')
+          .select('id,title,body,owner_id')
           .eq('owner_id', identity.userId)
           .order('created_at', { ascending: false });
         if (error || !Array.isArray(data)) return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
-        return response.status(200).json(data);
+        if (data.some(note => note?.owner_id !== identity.userId)) {
+          return response.status(403).json({ error: 'ACCESS_DENIED' });
+        }
+        return response.status(200).json(data.map(({ id, title, body }) => ({ id, title, body })));
       }
 
       let body;
@@ -65,11 +70,15 @@ export function createMemosHandler({ verify, makeDb, generateId = randomUUID } =
       const id = body.id ?? generateId();
       const { data, error } = await supabase.from('user_notes')
         .insert({ id, title: body.title.trim(), body: body.body, owner_id: identity.userId })
-        .select('id').single();
+        .select('id,owner_id').single();
       if (error) {
         return response.status(error.code === '23505' ? 409 : 502)
           .json({ error: error.code === '23505' ? 'ID_CONFLICT' : 'NOTES_UNAVAILABLE' });
       }
+      if (!data || data.owner_id !== identity.userId) {
+        return response.status(403).json({ error: 'ACCESS_DENIED' });
+      }
+      response.setHeader('X-Resource-ID', memoResourceId(data.id));
       return response.status(201).json({ id: data.id });
     } catch {
       return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });

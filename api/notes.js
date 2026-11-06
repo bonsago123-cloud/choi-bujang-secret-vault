@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { RESOURCE_IDS } from '../src/resource-ids.mjs';
 import config from '../aleph.config.json' with { type: 'json' };
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { cookieWriteForbidden, hasAuthCookie, identifyRequest } from '../src/server-auth.mjs';
@@ -15,6 +16,7 @@ export function createNotesHandler({ verify, makeDb } = {}) {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Vary', 'Authorization');
+    response.setHeader('X-Resource-ID', RESOURCE_IDS.studyNotes);
     if (request.method !== 'GET') {
       response.setHeader('Allow', 'GET');
       return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
@@ -49,7 +51,7 @@ export function createNotesHandler({ verify, makeDb } = {}) {
       });
       const { data, error } = await supabase
         .from('study_notes')
-        .select('title,content')
+        .select('title,content,owner_id')
         .eq('owner_id', verifiedIdentity.userId)
         .in('title', SAMPLE_TITLES)
         .order('id', { ascending: true });
@@ -63,6 +65,10 @@ export function createNotesHandler({ verify, makeDb } = {}) {
         return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });
       }
 
+      // A DB query filter alone is not the final authorization check.
+      if (data.some(note => note.owner_id !== verifiedIdentity.userId)) {
+        return response.status(403).json({ error: 'ACCESS_DENIED' });
+      }
       return response.status(200).json({ notes: data.map(({ title, content }) => ({ title, content })) });
     } catch {
       return response.status(502).json({ error: 'NOTES_UNAVAILABLE' });

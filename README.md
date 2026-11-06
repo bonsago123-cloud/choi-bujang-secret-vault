@@ -1,3 +1,18 @@
+## 8단계 저장점 (2026-11-06) — 자료마다 갈 수 있는 구역을 나눕니다
+
+- 현재 설정 단계: `8`. 기존 저장소·배포 주소, `judgeIssuer`, 인증 발급자, 원본 자료 API와 실제 메모 데이터는 보존합니다.
+- **자원 ID:** 개인 메모 `personal_memo:collection` 및 `personal_memo:<ID>`, 실습 메모 `study_note:collection`, 강사 공지 `instructor_notice:collection`을 서버에서 구분합니다. 요청 헤더 `X-Resource-ID`를 권한 근거로 신뢰하지 않습니다.
+- **판정기 구역 규칙 `resource_zone`:** 엔진이 확인한 `service`, `method`, `route`, `path` 및 쿼리 유무를 대조합니다. 메모 한 건 GET/PUT/DELETE 및 반 공지 GET만 허용하고, 전체 목록·쓰기 공지·강사 자료·미확인 경로·`export`와 같은 기능 경로는 거부합니다. 심판 가상 자료 ID에 UUID 형식을 강요하지 않습니다.
+- **이전 단계 유지:** 미등록 기기는 `device_registered`로 거부하고, 정상 경로에서 복합 위험이 발견되면 `step_up_required`로 추가 확인을 요구합니다. 응답은 `aleph.decision.v1`의 다섯 항목을 유지합니다.
+- **API에서 별도 소유권 검사:** 판정기는 메모 주인을 알지 못합니다. 자료 API가 서버에서 인증한 `userId`와 DB의 `owner_id`를 확인하며, 브라우저 메뉴·요청 본문 `role`·가짜 소유자 값으로 권한을 부여하지 않습니다. A/B 교차 읽기·수정·삭제 거부와 본인 정상 동작을 로컬 모의 DB 검사로 확인했습니다.
+- **허용 경로 설정:** `GET /api/memos/:id`, `PUT /api/memos/:id`, `DELETE /api/memos/:id`, `GET /api/instructor-notices` 네 개만 심판 허용 목록에 등록합니다. 판정기 입력은 `/notes/:id`, `/notices` 형식이고 API 주소는 기존대로 유지합니다. 기존 목록/생성 API 코드는 화면 호환성을 위해 남아 있지만 판정기 허용 목록에는 없습니다.
+- **미구현 구분:** 강사 공지 GET은 로그인 검증 후에도 `501 INSTRUCTOR_NOTICES_NOT_IMPLEMENTED`이며, 저장된 강사 역할·공지 데이터·강사 관리 경로는 구현하지 않았습니다. 이 경로를 운영상 공지 열람 성공으로 주장하지 않습니다.
+- **검증:** 8단계 구역 가상 판정 23건, 자료 API/자원 ID/인증 관련 테스트 26건, 6~7단계 판정기 검사를 로컬에서 통과했다고 사용자가 보고했습니다. 이번 저장점에서 `npm.cmd run decider:test`, `npm.cmd run fixture:7`, `npm.cmd run test:r5`, `npm.cmd run test:package`, `node --test test/stage8-api-guard.test.mjs test/resource-ids.test.mjs test/notes.test.mjs test/memos.test.mjs test/stage4-owner.test.mjs test/stage4-attack-check.test.mjs test/server-auth-cookie.test.mjs`를 재실행합니다.
+- **제출:** 커밋한 뒤 `npm.cmd run bundle`로 무시되는 `artifacts/submission.json`을 생성합니다. `src/attack-check.mjs`는 공개된 배포 주소에 실제 비로그인 HTTP 요청을 보내 상태만 기록하므로, 8단계 배포 전 결과와 공식 심판 채점은 별개입니다.
+- **공식 심판 기록:** 사용자가 6·7단계에서 각각 100점을 받았다고 알려주었습니다. 8단계 공식 심판 점수는 아직 보고되지 않았습니다. 아래 7단계 절에 적힌 '아직 미확인'은 해당 커밋 당시의 과거 기록으로 남깁니다.
+
+---
+
 ## 7단계 저장점 (2026-11-06) — 평소와 다른 접속은 다시 확인합니다
 
 - 현재 설정 단계: `7`; 이전 배포 주소, 인증 발급자, 심판 발급자, 허용 API 경로 및 원본 자료 API 주소는 유지합니다.

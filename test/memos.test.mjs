@@ -85,7 +85,7 @@ test('A creates, lists, reads, updates and deletes a UUID note; missing GET is 4
   assert.equal(rows.get(NOTE).owner_id, A); // forged owner_id in body is ignored
   const listed = await invoke(list, 'GET');
   assert.equal(listed.statusCode, 200);
-  assert.deepEqual(listed.payload, [{ ...rows.get(NOTE) }]);
+  assert.deepEqual(listed.payload, [{ id: NOTE, title: rows.get(NOTE).title, body: rows.get(NOTE).body }]);
   currentUser = B;
   const bList = await invoke(list, 'GET');
   assert.deepEqual(bList.payload, []); // listing uses verified owner_id

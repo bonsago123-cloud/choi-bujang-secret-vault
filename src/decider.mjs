@@ -1,7 +1,7 @@
 ﻿// ALEPH SDP 엔진이 확인한 요청만 받는 학생 판정기 시작점입니다.
 // 6단계부터 규칙을 하나씩 추가합니다. 기기 등록 여부는 엔진이 전달한 값만 사용합니다.
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
-export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required']);
+export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required', 'resource_zone']);
 
 // Inspect only fields defined by the engine's aleph.decision.v1 contract.
 // This function cannot authenticate callers: only the engine may invoke decide(request).
@@ -50,6 +50,35 @@ export function inspectDecisionInput(request) {
   };
 }
 
+// Stage 8: enforce exact engine-verified service + method + route + path shapes.
+// No role, ownership, raw client headers or query-selected operations are used here.
+// The backing API (task 3) must separately verify the authenticated memo owner.
+const RESERVED_MEMO_IDS = new Set(['export', 'import', 'search', 'new', 'bulk', 'all', 'admin']);
+function singleIdPath(path, prefix, reserved = null) {
+  if (typeof path !== 'string' || !path.startsWith(prefix + '/')) return false;
+  const id = path.slice(prefix.length + 1);
+  // One path segment only; not necessarily UUID (the judge uses virtual IDs).
+  // Reject encoded segments and special sibling routes such as /notes/export.
+  return /^[A-Za-z0-9._~-]{1,128}$/u.test(id) && id !== '.' && id !== '..'
+    && (!reserved || !reserved.has(id.toLowerCase()));
+}
+function zoneAllows(request) {
+  if (request?.queryLength !== 0) return false; // Never dispatch functionality by query.
+  const { service, method, path, route } = request ?? {};
+  if (service === 'notes') {
+    return (method === 'GET' || method === 'PUT' || method === 'DELETE')
+      && route === method + ' /notes/:id'
+      && singleIdPath(path, '/notes', RESERVED_MEMO_IDS);
+  }
+  if (service === 'notices') {
+    // Class announcements are read-only for everyone. Instructor editing is a
+    // separate server-admin flow, because this engine contract has no role.
+    return method === 'GET' && route === 'GET /notices' && path === '/notices';
+  }
+  // Instructor materials and every unknown service/route are denied by default.
+  return false;
+}
+
 export async function decide(request) {
   const input = inspectDecisionInput(request);
 
@@ -61,6 +90,17 @@ export async function decide(request) {
       decision: 'deny',
       reasonCode: 'device_not_registered',
       ruleIds: ['device_registered'],
+    };
+  }
+
+  // Access zones are checked before anomaly step-up. Unauthorized paths never get through.
+  if (!zoneAllows(request)) {
+    return {
+      schema: 'aleph.decision.v1',
+      requestId: request.requestId,
+      decision: 'deny',
+      reasonCode: 'route_not_allowed',
+      ruleIds: ['resource_zone'],
     };
   }
 
@@ -89,6 +129,6 @@ export async function decide(request) {
     requestId: request.requestId,
     decision: requiresStepUp ? 'step_up' : 'allow',
     reasonCode: requiresStepUp ? 'step_up_required' : 'approved',
-    ruleIds: compositeRisk ? ['device_registered', 'step_up_required'] : ['device_registered'],
+    ruleIds: compositeRisk ? ['device_registered', 'resource_zone', 'step_up_required'] : ['device_registered', 'resource_zone'],
   };
 }

@@ -143,9 +143,15 @@ test('A/B own GET POST PUT DELETE; cross-ID operations cannot read, modify or re
   }
 });
 
-test('declared routes match real methods without inventing APIs', () => {
+test('stage 8 allowedRoutes declare only individual memo operations and notice read', () => {
+  // Declared SDP routes are not an assertion that the placeholder notice API serves data.
   assert.deepEqual(config.allowedRoutes, [
-    'GET /api/notes', 'GET /api/memos', 'POST /api/memos',
     'GET /api/memos/:id', 'PUT /api/memos/:id', 'DELETE /api/memos/:id',
+    'GET /api/instructor-notices',
   ]);
+  assert.equal(config.allowedRoutes.includes("GET /api/memos"), false);
+  assert.equal(config.allowedRoutes.includes("POST /api/memos"), false);
+  assert.equal(config.allowedRoutes.includes("POST /api/instructor-notices"), false);
+  assert.equal(config.allowedRoutes.includes("PUT /api/instructor-notices"), false);
+  assert.equal(config.allowedRoutes.includes("DELETE /api/instructor-notices"), false);
 });
