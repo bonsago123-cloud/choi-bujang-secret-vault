@@ -33,6 +33,13 @@
     .note-meta { font-size: 12px; overflow-wrap: anywhere; }
     #my-memos li { margin-top: 10px; }
 
+    .ops-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(210px,1fr)); gap: 12px; margin-top: 16px; }
+    .ops-card { border: 1px solid #51667c; border-radius: 12px; padding: 14px; background: #152536; }
+    .ops-card h3 { margin: 0; font-size: 16px; }
+    .ops-value { margin: 9px 0 3px; font-size: 24px; font-weight: 750; color: #8ad8df; overflow-wrap: anywhere; }
+    .ops-note { margin: 4px 0; font-size: 13px; }
+    #ops-redacted-log { overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid #51667c; border-radius: 8px; font-size: 12px; background: #101a28; }
+    .ops-legend { color: #bfd0e5; font-size: 13px; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -92,6 +99,23 @@
       <ul id="my-memos" aria-live="polite"><li>내 메모를 불러오는 중입니다.</li></ul>
     </section>
 
+    <section class="auth-box" id="operations-section" hidden aria-labelledby="operations-title">
+      <h2 id="operations-title">12단계 · 탈환 작전실</h2>
+      <p class="ops-legend">서버 API가 확인한 규칙·기준선과, 운영 실행 기록이 없는 항목을 구분합니다. ‘—’는 0건이 아니라 미집계입니다.</p>
+      <button id="operations-refresh" type="button">작전실 새로 확인</button>
+      <p id="operations-status" role="status" aria-live="polite">서버 응답 대기 중</p>
+      <div class="ops-grid">
+        <article class="ops-card"><h3>판정기 규칙</h3><div id="ops-policy-count" class="ops-value">—</div><p id="ops-policy-note" class="ops-note">서버 확인 전</p></article>
+        <article class="ops-card"><h3>탐지 사건</h3><div id="ops-detection-count" class="ops-value">—</div><p id="ops-detection-note" class="ops-note">서버 확인 전</p></article>
+        <article class="ops-card"><h3>회수 상태</h3><div id="ops-revocation-count" class="ops-value">—</div><p id="ops-revocation-note" class="ops-note">서버 확인 전</p></article>
+        <article class="ops-card"><h3>복구 버전</h3><div id="ops-recovery-version" class="ops-value">—</div><p id="ops-recovery-note" class="ops-note">서버 확인 전</p></article>
+      </div>
+      <details><summary>가린 서버 기록 — 같은 API 응답</summary>
+        <p class="ops-legend">운영 서버 로그에도 기록된 동일한 요약입니다. 사용자·메모·인증 정보는 기록하지 않습니다.</p>
+        <pre id="ops-redacted-log">서버 확인 전</pre>
+      </details>
+    </section>
+
     <h2 id="legacy-notes-title" hidden>기존 실습용 가상 메모</h2>
     <ul id="notes" aria-live="polite" hidden><li>로그인하면 가상 메모를 불러옵니다.</li></ul>
   </main>
@@ -107,6 +131,30 @@ const statusButton = document.querySelector('#device-status-button');
 const verifyButton = document.querySelector('#device-verify-button');
 const requestCode = document.querySelector('#device-request-code');
 const legacyNotesTitle = document.querySelector('#legacy-notes-title');
+const operationsSection = document.querySelector('#operations-section');
+const operationsStatus = document.querySelector('#operations-status');
+const operationsRefresh = document.querySelector('#operations-refresh');
+const opsPolicyCount = document.querySelector('#ops-policy-count');
+const opsPolicyNote = document.querySelector('#ops-policy-note');
+const opsDetectionCount = document.querySelector('#ops-detection-count');
+const opsDetectionNote = document.querySelector('#ops-detection-note');
+const opsRevocationCount = document.querySelector('#ops-revocation-count');
+const opsRevocationNote = document.querySelector('#ops-revocation-note');
+const opsRecoveryVersion = document.querySelector('#ops-recovery-version');
+const opsRecoveryNote = document.querySelector('#ops-recovery-note');
+const opsRedactedLog = document.querySelector('#ops-redacted-log');
+let operationsVersion = 0;
+function hideOperations() {
+  ++operationsVersion;
+  operationsSection.hidden = true;
+  operationsStatus.textContent = '서버 응답 대기 중';
+  opsPolicyCount.textContent = '—';
+  opsDetectionCount.textContent = '—';
+  opsRevocationCount.textContent = '—';
+  opsRecoveryVersion.textContent = '—';
+  opsRedactedLog.textContent = '서버 확인 전';
+}
+
 function updateConnectionStatus() {
   connectionStatus.textContent = navigator.onLine
     ? '연결 상태: 온라인 표시 (서버 연결 및 기기 승인 여부는 별도 확인 필요)'
@@ -167,6 +215,7 @@ function renderAuth(user) {
   currentUser = user;
   deviceVerified = false;
   ++approvalVersion;
+  hideOperations();
   notesList.hidden = true;
   legacyNotesTitle.hidden = true;
   const isLoggedIn = Boolean(user);
@@ -223,6 +272,7 @@ async function devicePost(action, payload = {}) {
 }
 function showDevicePending(message) {
   deviceVerified = false;
+  hideOperations();
   memosSection.hidden = true;
   legacyNotesTitle.hidden = true;
   notesList.hidden = true;
@@ -258,6 +308,7 @@ async function refreshDeviceApproval() {
       verifyButton.hidden = true;
       void loadNotes(true);
       void loadUserMemos(true);
+      void loadOperations(true);
       return;
     }
     if (data.state === 'approved') {
@@ -378,6 +429,72 @@ async function authFetch(path, options = {}) {
   }
   return response;
 }
+
+function assertOperationsEvidence(data) {
+  const summary = data?.summary;
+  const log = data?.redactedServerLog;
+  if (!summary || !log || summary.schema !== 'aleph.operations.summary.v1'
+      || log.schema !== 'aleph.operations.redacted-log.v1' || log.redacted !== true
+      || summary.requestId !== log.requestId || summary.generatedAt !== log.generatedAt
+      || !Number.isSafeInteger(summary.policy?.definedRules)
+      || summary.policy.definedRules !== log.policy?.definedRules
+      || summary.policy.evidence !== log.policy?.evidence
+      || summary.detection?.eventCount !== log.detection?.eventCount
+      || summary.detection?.detectionCount !== log.detection?.detectionCount
+      || summary.revocation?.revokedCount !== log.revocation?.revokedCount
+      || summary.recovery?.referenceVersion !== log.recovery?.referenceVersion
+      || summary.recovery?.baselineIntegrity !== log.recovery?.baselineIntegrity
+      || summary.recovery?.executedRestores !== log.recovery?.executedRestores
+      || summary.policy.evidence !== 'api_verified' || summary.policy.execution !== 'not_executed'
+      || summary.policy.evaluationExecutions !== null
+      || summary.detection.evidence !== 'not_executed' || summary.detection.detectionCount !== null
+      || summary.detection.eventCount !== null || summary.revocation.evidence !== 'not_executed'
+      || summary.revocation.revokedCount !== null || summary.revocation.execution !== 'not_connected'
+      || summary.recovery.evidence !== 'api_verified' || summary.recovery.execution !== 'not_executed'
+      || summary.recovery.executedRestores !== null) {
+    throw new Error('화면 요약과 가린 서버 기록이 일치하지 않습니다.');
+  }
+  return { summary, log };
+}
+async function loadOperations(active) {
+  const version = ++operationsVersion;
+  operationsSection.hidden = !active;
+  if (!active || !deviceVerified || !currentUser) return;
+  operationsRefresh.disabled = true;
+  operationsStatus.textContent = '서버의 실제 API 응답을 확인하고 있습니다.';
+  opsRedactedLog.textContent = '조회 중';
+  try {
+    const response = await authFetch('/api/operations');
+    if (version !== operationsVersion || !deviceVerified || !currentUser) return;
+    if (!response.ok) throw new Error('작전실 조회 실패 (HTTP ' + response.status + ')');
+    const { summary, log } = assertOperationsEvidence(await response.json());
+    if (version !== operationsVersion || !deviceVerified || !currentUser) return;
+    opsPolicyCount.textContent = String(summary.policy.definedRules) + '개';
+    opsPolicyNote.textContent = 'API 확인 · 코드에 정의된 규칙 (' + summary.policy.ruleIds.join(', ') + ') · 실제 판정 실행 수 미집계';
+    opsDetectionCount.textContent = summary.detection.eventCount === null ? '—' : String(summary.detection.eventCount) + '건';
+    opsDetectionNote.textContent = '미실행 · 운영 사건 수집 미연결 (가상 규칙: 10분에 120건 초과)';
+    opsRevocationCount.textContent = summary.revocation.revokedCount === null ? '—' : String(summary.revocation.revokedCount) + '건';
+    opsRevocationNote.textContent = '미연결 · 제안 기능만 있으며 실제 회수 실행 기록 없음';
+    opsRecoveryVersion.textContent = summary.recovery.referenceVersion;
+    opsRecoveryNote.textContent = 'API 확인 · 기준선 해시 검증됨 / 실제 운영 복원 미실행';
+    opsRedactedLog.textContent = JSON.stringify(log, null, 2);
+    operationsStatus.textContent = 'API 응답 HTTP 200 확인 · 조회 ID: ' + summary.requestId + ' · 기준시각: ' + summary.generatedAt;
+  } catch (error) {
+    if (version === operationsVersion && deviceVerified && currentUser) {
+      operationsStatus.textContent = '조회 확인 불가 — ' + (error.message || '서버 오류');
+      opsPolicyCount.textContent = '—';
+      opsDetectionCount.textContent = '—';
+      opsRevocationCount.textContent = '—';
+      opsRecoveryVersion.textContent = '—';
+      opsPolicyNote.textContent = '검증되지 않음';
+      opsDetectionNote.textContent = '검증되지 않음';
+      opsRevocationNote.textContent = '검증되지 않음';
+      opsRecoveryNote.textContent = '검증되지 않음';
+      opsRedactedLog.textContent = '조회 실패 — 서버 기록과 대조할 수 없습니다.';
+    }
+  } finally { if (version === operationsVersion) operationsRefresh.disabled = false; }
+}
+operationsRefresh.addEventListener('click', () => { if (deviceVerified) void loadOperations(true); });
 
 async function loadNotes(active) {
   const version = ++notesRequestVersion;

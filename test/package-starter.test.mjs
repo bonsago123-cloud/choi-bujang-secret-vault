@@ -15,7 +15,7 @@ test('패키징 함수 기준표는 시작 틀의 API와 2~3단계 메모 함수
   assert.deepEqual(baseline.allowedNew, ['api/ai.js', 'api/threat-intel.js']);
   assert.deepEqual(actual, [
     ...baseline.functions, ...baseline.allowedNew,
-    'api/notes.js', 'api/memo.js', 'api/memos.js', 'api/instructor-notices.js', 'api/device.js',
+    'api/notes.js', 'api/memo.js', 'api/memos.js', 'api/instructor-notices.js', 'api/device.js', 'api/operations.js',
   ].sort());
 });
 
