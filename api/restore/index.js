@@ -1,3 +1,4 @@
+import { mayAccessProtectedData } from '../../src/device-access.mjs';
 import { createClient } from '@supabase/supabase-js';
 import config from '../../aleph.config.json' with { type: 'json' };
 import { createLoginVerifier } from '../../src/verify-login.mjs';
@@ -49,6 +50,16 @@ export function createMemoRestoreHandler({ verify, makeDb, auditLog = [] } = {})
         return response.status(401).json({ error: 'UNAUTHORIZED' });
       }
 
+      const supabase = makeDb ? makeDb() : createClient(url, secretKey, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+
+      // Stage 11: a normal browser's verified login is not proof of device approval.
+      // ALEPH judge requests retain their separately verified engine path.
+      if (!verify && !(await mayAccessProtectedData({ request, db: supabase, identity: identity }))) {
+        return response.status(403).json({ error: 'DEVICE_APPROVAL_REQUIRED' });
+      }
+
       let body;
       try {
         body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
@@ -84,9 +95,6 @@ export function createMemoRestoreHandler({ verify, makeDb, auditLog = [] } = {})
         return response.status(409).json({ error: 'BACKUP_INTEGRITY_MISMATCH' });
       }
 
-      const supabase = makeDb ? makeDb() : createClient(url, secretKey, {
-        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-      });
 
       const result = await restoreSingleMemoFromBackup({
         memoId: targetId,

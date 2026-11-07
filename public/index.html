@@ -46,6 +46,12 @@
     <section class="auth-box" id="device-approval-section" aria-labelledby="device-approval-title">
       <h2 id="device-approval-title">설치 및 기기 승인 상태</h2>
       <p id="device-approval-status" role="status" aria-live="polite">기기 승인 상태: 확인되지 않음 (서버 검증 정보 미제공)</p>
+      <div class="note-controls">
+        <button id="device-request-button" type="button" hidden>기기 승인 요청</button>
+        <button id="device-status-button" type="button" hidden>승인 결과 확인</button>
+        <button id="device-verify-button" type="button" hidden>승인된 기기 확인</button>
+      </div>
+      <p id="device-request-code" class="note-meta" hidden></p>
       <p>홈 화면에 설치하거나 로그인해도 기기 승인이 완료되는 것은 아닙니다. 보호 요청의 허용·거부는 기존 서버와 보안 판정기가 결정합니다.</p>
       <p id="connection-status" role="status" aria-live="polite">연결 상태 확인 중...</p>
       <p id="install-status">브라우저 메뉴에서 ‘앱 설치’ 또는 ‘홈 화면에 추가’를 선택할 수 있습니다. 지원 여부는 브라우저마다 다릅니다.</p>
@@ -86,15 +92,21 @@
       <ul id="my-memos" aria-live="polite"><li>내 메모를 불러오는 중입니다.</li></ul>
     </section>
 
-    <h2>기존 실습용 가상 메모</h2>
-    <ul id="notes" aria-live="polite"><li>로그인하면 가상 메모를 불러옵니다.</li></ul>
+    <h2 id="legacy-notes-title" hidden>기존 실습용 가상 메모</h2>
+    <ul id="notes" aria-live="polite" hidden><li>로그인하면 가상 메모를 불러옵니다.</li></ul>
   </main>
 
   <script type="module">
 // The browser has no Supabase project key or Auth token. Auth is server-managed.
-// Stage 11 display is information-only. It never sends a device-approval claim.
+// Device access is granted only after an actual server-verified WebAuthn proof and operator approval.
 const connectionStatus = document.querySelector('#connection-status');
 const installStatus = document.querySelector('#install-status');
+const approvalStatus = document.querySelector('#device-approval-status');
+const requestButton = document.querySelector('#device-request-button');
+const statusButton = document.querySelector('#device-status-button');
+const verifyButton = document.querySelector('#device-verify-button');
+const requestCode = document.querySelector('#device-request-code');
+const legacyNotesTitle = document.querySelector('#legacy-notes-title');
 function updateConnectionStatus() {
   connectionStatus.textContent = navigator.onLine
     ? '연결 상태: 온라인 표시 (서버 연결 및 기기 승인 여부는 별도 확인 필요)'
@@ -140,6 +152,8 @@ let currentUser = null;
 let notesRequestVersion = 0;
 let memosRequestVersion = 0;
 let sessionPromise = null;
+let deviceVerified = false;
+let approvalVersion = 0;
 
 function showError(message) {
   errorMessage.textContent = message;
@@ -151,9 +165,13 @@ function clearError() {
 }
 function renderAuth(user) {
   currentUser = user;
+  deviceVerified = false;
+  ++approvalVersion;
+  notesList.hidden = true;
+  legacyNotesTitle.hidden = true;
   const isLoggedIn = Boolean(user);
   form.hidden = isLoggedIn;
-  memosSection.hidden = !isLoggedIn;
+  memosSection.hidden = true;
   if (!isLoggedIn) {
     editingId = null;
     memoForm.reset();
@@ -181,6 +199,149 @@ function showMemosMessage(message) {
   item.textContent = message;
   myMemos.replaceChildren(item);
 }
+
+
+function b64ToBytes(value) {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+  return Uint8Array.from(binary, ch => ch.charCodeAt(0));
+}
+function bytesToB64(value) {
+  const bytes = new Uint8Array(value);
+  let text = '';
+  for (const byte of bytes) text += String.fromCharCode(byte);
+  return btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+async function devicePost(action, payload = {}) {
+  const response = await fetch('/api/device?action=' + encodeURIComponent(action), {
+    method: 'POST', cache: 'no-store', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || '기기 승인 서버에서 요청이 거절됐습니다.');
+  return data;
+}
+function showDevicePending(message) {
+  deviceVerified = false;
+  memosSection.hidden = true;
+  legacyNotesTitle.hidden = true;
+  notesList.hidden = true;
+  ++notesRequestVersion;
+  ++memosRequestVersion;
+  notesList.replaceChildren();
+  myMemos.replaceChildren();
+  approvalStatus.textContent = '기기 승인 상태: ' + message;
+}
+async function refreshDeviceApproval() {
+  const version = ++approvalVersion;
+  showDevicePending(currentUser ? '서버에서 확인 중...' : '로그인 후 확인 가능');
+  requestButton.hidden = !currentUser;
+  statusButton.hidden = !currentUser;
+  verifyButton.hidden = true;
+  requestCode.hidden = true;
+  if (!currentUser) return;
+  try {
+    const response = await fetch('/api/device?action=status', {
+      cache: 'no-store', credentials: 'same-origin',
+    });
+    if (version !== approvalVersion) return;
+    if (!response.ok) throw new Error('서버에서 기기 승인 여부를 확인할 수 없습니다.');
+    const data = await response.json();
+    if (version !== approvalVersion) return;
+    if (data.state === 'verified' && data.verified === true) {
+      deviceVerified = true;
+      approvalStatus.textContent = '기기 승인 상태: 서버 확인 완료 (현재 접속만 유효)';
+      memosSection.hidden = false;
+      legacyNotesTitle.hidden = false;
+      notesList.hidden = false;
+      requestButton.hidden = true;
+      verifyButton.hidden = true;
+      void loadNotes(true);
+      void loadUserMemos(true);
+      return;
+    }
+    if (data.state === 'approved') {
+      showDevicePending('승인됨 — 이 기기에서 인증장치 확인이 필요합니다.');
+      verifyButton.hidden = false;
+    } else if (data.state === 'pending') {
+      showDevicePending('승인 대기 중 — 관리자의 별도 검토가 필요합니다.');
+      if (typeof data.requestCode === 'string') {
+        requestCode.textContent = '관리자에게 전달할 요청 코드(비밀키 아님): ' + data.requestCode;
+        requestCode.hidden = false;
+      }
+    } else if (data.state === 'denied') {
+      showDevicePending('요청이 거부됐습니다. 관리자에게 문의하세요.');
+    } else {
+      showDevicePending('미등록 — 승인 요청이 필요합니다.');
+    }
+  } catch (error) { if (version === approvalVersion) showDevicePending('확인 불가 — 보호 자료를 표시하지 않습니다.'); }
+}
+function serializeCredential(credential, registration) {
+  const r = credential.response;
+  return {
+    id: credential.id, rawId: bytesToB64(credential.rawId), type: 'public-key',
+    authenticatorAttachment: credential.authenticatorAttachment || undefined,
+    clientExtensionResults: credential.getClientExtensionResults(),
+    response: registration ? {
+      clientDataJSON: bytesToB64(r.clientDataJSON),
+      attestationObject: bytesToB64(r.attestationObject),
+      transports: r.getTransports?.() || [],
+    } : {
+      clientDataJSON: bytesToB64(r.clientDataJSON),
+      authenticatorData: bytesToB64(r.authenticatorData),
+      signature: bytesToB64(r.signature),
+      userHandle: r.userHandle ? bytesToB64(r.userHandle) : undefined,
+    },
+  };
+}
+function decodeCredentialOptions(options, registration) {
+  const result = { ...options, challenge: b64ToBytes(options.challenge) };
+  if (registration) {
+    result.user = { ...options.user, id: b64ToBytes(options.user.id) };
+    result.excludeCredentials = (options.excludeCredentials || []).map(x => ({ ...x, id: b64ToBytes(x.id) }));
+  } else result.allowCredentials = (options.allowCredentials || []).map(x => ({ ...x, id: b64ToBytes(x.id) }));
+  return result;
+}
+async function runDeviceAction(action) {
+  if (!currentUser || !navigator.credentials) {
+    showDevicePending('로그인과 WebAuthn 인증장치가 필요합니다.');
+    return;
+  }
+  requestButton.disabled = true;
+  statusButton.disabled = true;
+  verifyButton.disabled = true;
+  try {
+    if (action === 'request') {
+      const data = await devicePost('request-options');
+      const credential = await navigator.credentials.create({
+        publicKey: decodeCredentialOptions(data.options, true),
+      });
+      if (!credential) throw new Error('기기 등록 인증을 취소했습니다.');
+      await devicePost('request', {
+        challengeId: data.challengeId, credential: serializeCredential(credential, true),
+      });
+    } else if (action === 'verify') {
+      const data = await devicePost('verify-options');
+      const credential = await navigator.credentials.get({
+        publicKey: decodeCredentialOptions(data.options, false),
+      });
+      if (!credential) throw new Error('기기 인증을 취소했습니다.');
+      await devicePost('verify', {
+        challengeId: data.challengeId, credential: serializeCredential(credential, false),
+      });
+    }
+    await refreshDeviceApproval();
+  } catch (error) {
+    showDevicePending('요청 실패 — ' + (error.message || '인증 실패'));
+  } finally {
+    requestButton.disabled = false;
+    statusButton.disabled = false;
+    verifyButton.disabled = false;
+  }
+}
+requestButton.addEventListener('click', () => { void runDeviceAction('request'); });
+statusButton.addEventListener('click', () => { void refreshDeviceApproval(); });
+verifyButton.addEventListener('click', () => { void runDeviceAction('verify'); });
 
 async function getServerSession() {
   const response = await fetch('/api/auth?action=session', {
@@ -383,9 +544,8 @@ form.addEventListener('submit', async event => {
       throw new Error('로그인 응답 형식이 올바르지 않습니다.');
     }
     renderAuth(data.user);
-    void loadNotes(true);
-    void loadUserMemos(true);
-    status.textContent = '로그인에 성공했습니다.';
+    void refreshDeviceApproval();
+    status.textContent = '로그인에 성공했습니다. 기기 승인을 확인하세요.';
   } catch (error) {
     passwordInput.value = '';
     renderAuth(null);
@@ -413,8 +573,7 @@ logoutButton.addEventListener('click', async () => {
     try {
       const user = await singleSessionCheck();
       renderAuth(user);
-      void loadNotes(Boolean(user));
-      void loadUserMemos(Boolean(user));
+      void refreshDeviceApproval();
     } catch { renderAuth(null); }
   } finally { setBusy(false); }
 });
@@ -422,8 +581,7 @@ logoutButton.addEventListener('click', async () => {
 try {
   const user = await singleSessionCheck();
   renderAuth(user);
-  void loadNotes(Boolean(user));
-  void loadUserMemos(Boolean(user));
+  void refreshDeviceApproval();
 } catch (error) {
   renderAuth(null);
   void loadNotes(false);

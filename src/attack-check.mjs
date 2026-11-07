@@ -48,6 +48,8 @@ export async function runAttackChecks(config) {
         fetchStatus(new URL('/api/memos/restore', app), { ...requestOptions, method: 'POST' }),
       ] : []),
     ]);
+    const deviceStatus = config.step === 11
+      ? await fetchStatus(new URL('/api/device?action=status', app), requestOptions) : null;
     // Record HTTP status codes only; never read or record memo bodies or credentials.
     return [
       {
@@ -69,6 +71,10 @@ export async function runAttackChecks(config) {
         attackId: 'anonymous_restore_attempt',
         expected: '비로그인 복원 API 요청 시 자료 복원이 거부되고 HTTP 401 예상',
         observed: `실제 비로그인 복원 API HTTP 상태: /api/memos/restore ${restoreItem.status}${restoreItem.status === 404 ? ' (복원 API는 아직 미배포됐을 수 있음)' : ''}`,
+      }] : []),
+      ...(config.step === 11 ? [{ attackId: 'anonymous_device_approval_status',
+        expected: '비로그인 기기 승인 상태 조회 HTTP 401',
+        observed: '실제 비로그인 승인 상태 HTTP ' + deviceStatus.status,
       }] : []),
     ];
   }

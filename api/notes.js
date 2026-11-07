@@ -1,3 +1,4 @@
+import { mayAccessProtectedData } from '../src/device-access.mjs';
 import { createClient } from '@supabase/supabase-js';
 import { RESOURCE_IDS } from '../src/resource-ids.mjs';
 import config from '../aleph.config.json' with { type: 'json' };
@@ -49,6 +50,12 @@ export function createNotesHandler({ verify, makeDb } = {}) {
       const supabase = makeDb ? makeDb() : createClient(url, secretKey, {
         auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
       });
+      // Stage 11: a normal browser's verified login is not proof of device approval.
+      // ALEPH judge requests retain their separately verified engine path.
+      if (!verify && !(await mayAccessProtectedData({ request, db: supabase, identity: verifiedIdentity }))) {
+        return response.status(403).json({ error: 'DEVICE_APPROVAL_REQUIRED' });
+      }
+
       const { data, error } = await supabase
         .from('study_notes')
         .select('title,content,owner_id')

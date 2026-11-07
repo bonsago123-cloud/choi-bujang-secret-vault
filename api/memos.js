@@ -1,3 +1,4 @@
+import { mayAccessProtectedData } from '../src/device-access.mjs';
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { RESOURCE_IDS, memoResourceId } from '../src/resource-ids.mjs';
@@ -46,6 +47,12 @@ export function createMemosHandler({ verify, makeDb, generateId = randomUUID } =
       const supabase = makeDb ? makeDb() : createClient(url, secretKey, {
         auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
       });
+      // Stage 11: a normal browser's verified login is not proof of device approval.
+      // ALEPH judge requests retain their separately verified engine path.
+      if (!verify && !(await mayAccessProtectedData({ request, db: supabase, identity: identity }))) {
+        return response.status(403).json({ error: 'DEVICE_APPROVAL_REQUIRED' });
+      }
+
       if (request.method === 'GET') {
         const { data, error } = await supabase.from('user_notes')
           .select('id,title,body,owner_id')
