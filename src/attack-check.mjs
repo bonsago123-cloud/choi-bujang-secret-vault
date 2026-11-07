@@ -2,7 +2,7 @@ import { PUBLISHABLE_KEY } from './public-auth-key.mjs';
 // Local self-check: only describe requests actually sent; not an official judge result.
 // Never include credentials, note contents, tokens or personal information in results.
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(config.step)) throw new Error('이 단계의 공격 점검을 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(config.step)) throw new Error('이 단계의 공격 점검을 구현해 주세요.');
   let app;
   try { app = new URL(config.publicAppUrl); }
   catch { throw new Error('aleph.config.json에 실제 배포 주소를 설정해 주세요.'); }
@@ -11,7 +11,7 @@ export async function runAttackChecks(config) {
     throw new Error('aleph.config.json의 배포 주소를 확인해 주세요.');
   }
 
-  if (config.step === 5 || config.step === 6 || config.step === 7 || config.step === 8) {
+  if (config.step === 5 || config.step === 6 || config.step === 7 || config.step === 8 || config.step === 9) {
     let original;
     let issuer;
     try {
@@ -26,18 +26,23 @@ export async function runAttackChecks(config) {
       throw new Error('5단계 원본 자료 API는 쿼리 없는 Supabase study_notes HTTPS 경로여야 합니다.');
     }
 
-    const requestOptions = { redirect: 'error', signal: AbortSignal.timeout(10000) };
+    const requestOptions = { redirect: 'error', signal: AbortSignal.timeout(30000) };
     // The publishable key is already public in the browser app; never print the key.
     // Use the same public anon key for a true direct-access check, without publishing it in HTML.
     const key = PUBLISHABLE_KEY;
 
+    // A failed connection is not an HTTP 401/403 response and cannot prove denial.
+    const fetchStatus = async (url, init) => {
+      try { return await fetch(url, init); }
+      catch { return { status: '미확인(연결 실패)' }; }
+    };
     const [direct, collection, sample, notice, item] = await Promise.all([
-      fetch(original, { ...requestOptions, headers: { apikey: key, Accept: 'application/json' } }),
-      fetch(new URL('/api/memos', app), requestOptions),
-      fetch(new URL('/api/notes', app), requestOptions),
-      ...(config.step === 8 ? [
-        fetch(new URL('/api/instructor-notices', app), requestOptions),
-        fetch(new URL('/api/memos/00000000-0000-4000-8000-000000000000', app), requestOptions),
+      fetchStatus(original, { ...requestOptions, headers: { apikey: key, Accept: 'application/json' } }),
+      fetchStatus(new URL('/api/memos', app), requestOptions),
+      fetchStatus(new URL('/api/notes', app), requestOptions),
+      ...((config.step === 8 || config.step === 9) ? [
+        fetchStatus(new URL('/api/instructor-notices', app), requestOptions),
+        fetchStatus(new URL('/api/memos/00000000-0000-4000-8000-000000000000', app), requestOptions),
       ] : []),
     ]);
     // Record HTTP status codes only; never read or record memo bodies or credentials.
@@ -52,7 +57,7 @@ export async function runAttackChecks(config) {
         expected: '비로그인 서버 메모 API 두 경로 모두 HTTP 401',
         observed: `실제 비로그인 HTTP 상태: /api/memos ${collection.status}, /api/notes ${sample.status}`,
       },
-      ...(config.step === 8 ? [{
+      ...((config.step === 8 || config.step === 9) ? [{
         attackId: 'anonymous_zone_direct_read',
         expected: '비로그인 개별 메모·공지 API 직접 조회 시 자료가 없으며 HTTP 401 예상',
         observed: `실제 비로그인 HTTP 상태: /api/memos/:id ${item.status}, /api/instructor-notices ${notice.status}${notice.status === 404 ? ' (공지 API는 아직 미배포됐을 수 있음)' : ''}`,

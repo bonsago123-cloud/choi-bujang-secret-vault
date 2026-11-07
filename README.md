@@ -1,3 +1,15 @@
+## 9단계 저장점 (2026-11-07) — 도플갱어를 찾고 권한을 거둡니다
+
+- **현재 설정 단계:** `9`. 기존 1~8단계 기능, 공개 배포 주소, 로그인 발급자, 심판 발급자, DB, `allowedRoutes`를 보존합니다.
+- **가상 사건 입력:** `src/detect.mjs`의 `detect(events)`는 문서 `docs/DETECT_EVENTS.md`에 정의된 `at`(시각), `method`(HTTP 요청 종류), `identity.sub`(가명 사용자)만 읽습니다. 실제 메모·토큰·실명·기기 번호·네트워크·지역은 탐지 조건이나 출력에 사용하지 않습니다.
+- **`burst_read` 규칙:** 동일한 `identity.sub`의 `GET` 조회가 어느 10분 구간에서든 120건을 **초과**할 때에만 정확히 `{ action: 'propose_revocation', reasonCode: 'burst_read', subject: sub }`를 반환합니다. 정확히 120건, 다른 사용자 합산, 10분을 초과하는 느린 조회, 비GET 요청은 탐지하지 않습니다. 그 외 반환값은 정확히 `{ action: 'observe' }`입니다.
+- **실행 범위:** 탐지 결과는 **권한 회수 제안**일 뿐이며 실제 회수 API, 토큰 취소, 기기 권한 변경, 운영 반 엔진 연동은 구현하거나 검증하지 않았습니다. `src/decider.mjs`의 기존 6~8단계 판정 응답도 변경하지 않았습니다.
+- **재검증 (저장소 루트):** `npm.cmd run detect:test`, `npm.cmd run decider:test`, `npm.cmd run fixture:7`, `npm.cmd run test:r5`, `npm.cmd run test:package`, `node --test test/stage8-api-guard.test.mjs test/resource-ids.test.mjs test/notes.test.mjs test/memos.test.mjs test/stage4-owner.test.mjs test/stage4-attack-check.test.mjs test/server-auth-cookie.test.mjs`.
+- **제출:** 저장점 커밋 후 `npm.cmd run bundle`로 `artifacts/submission.json`을 생성합니다. 자기 점검은 기존 실제 비로그인 HTTP 상태를 기록하며, `detect:test`는 로컬 가상 사건 테스트로 공식 심판이나 운영 접속 회수 성공을 뜻하지 않습니다. 제출 자료 및 설명에 비밀값이나 실제 메모 내용은 넣지 않습니다.
+- **이전 공식 판정:** 8단계 100점은 사용자가 확인해 준 결과입니다. 아래 8단계 절의 '아직 미보고'는 8단계 커밋 작성 당시의 과거 기록으로 보존했습니다. 9단계 공식 심판 점수는 아직 미확인입니다.
+
+---
+
 ## 8단계 저장점 (2026-11-06) — 자료마다 갈 수 있는 구역을 나눕니다
 
 - 현재 설정 단계: `8`. 기존 저장소·배포 주소, `judgeIssuer`, 인증 발급자, 원본 자료 API와 실제 메모 데이터는 보존합니다.
