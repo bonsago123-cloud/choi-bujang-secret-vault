@@ -44,7 +44,12 @@ export function computePolicyHash(policy) {
 }
 
 // 안전 정책 사본과 검증용 해시
-export const VERIFIED_POLICY_HASH = computePolicyHash(SAFETY_POLICY_BASELINE);
+// Pinned approved baseline digest: changing policy data alone cannot redefine its expected hash.
+// Authenticity of this source file still relies on the trusted Git release/permissions.
+export const VERIFIED_POLICY_HASH = '49b7c11950abe7aad9c3338ec03a0134a390c537148fd54786187e09d1cbe899';
+if (computePolicyHash(SAFETY_POLICY_BASELINE) !== VERIFIED_POLICY_HASH) {
+  throw new Error('승인된 안전 정책 기준선과 고정 해시가 다릅니다.');
+}
 
 export function verifyPolicyIntegrity(policy, expectedHash = VERIFIED_POLICY_HASH) {
   if (!policy || typeof policy !== 'object') {

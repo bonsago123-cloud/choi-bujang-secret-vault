@@ -72,12 +72,28 @@ export async function checkRestore() {
     ]);
     const mockDb = {
       from(table) {
-        return {
-          insert(val) {
-            memory.set(val.id, val);
-            return { select() { return { async maybeSingle() { return { data: val, error: null }; } }; } };
+        if (table !== 'user_notes') throw new Error('unexpected_table');
+        let mode = 'read';
+        let value;
+        const conditions = [];
+        const builder = {
+          select() { return this; },
+          eq(key, val) { conditions.push([key, val]); return this; },
+          insert(val) { mode = 'insert'; value = val; return this; },
+          update(val) { mode = 'update'; value = val; return this; },
+          async maybeSingle() {
+            if (mode === 'insert') {
+              if (memory.has(value.id)) return { data: null, error: { code: '23505' } };
+              memory.set(value.id, { ...value });
+              return { data: memory.get(value.id), error: null };
+            }
+            const found = [...memory.values()].find(row =>
+              conditions.every(([key, val]) => row[key] === val));
+            if (mode === 'update' && found) Object.assign(found, value);
+            return { data: found ?? null, error: null };
           },
         };
+        return builder;
       },
     };
     const auditLog = [];

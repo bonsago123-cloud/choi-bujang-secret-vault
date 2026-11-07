@@ -60,6 +60,9 @@ function makeMockDb() {
           return { data: [rows.get(values.id)], error: null };
         }
         const selected = [...rows.values()].filter(row => match.every(([k, v]) => row[k] === v));
+        if (mode === 'update') {
+          for (const row of selected) Object.assign(row, values);
+        }
         return { data: selected, error: null };
       }
       return builder;
@@ -253,4 +256,66 @@ test('10단계 POST 복원 API: 비로그인 및 타인 요청 거절, B 본인 
   assert.equal(auditLog[0].event, 'SYSTEM_BOOT');
   assert.equal(auditLog[1].event, 'RESTORE_MEMO');
   assert.equal(auditLog[1].memoId, RESTORE_TARGET_MEMO_B.id);
+});
+
+
+test('10단계 이미 존재하는 변조 B 메모는 새 행 추가가 아니라 대상 한 건만 복원한다', async () => {
+  const { db, rows } = makeMockDb();
+  const beforeA = JSON.stringify(rows.get(MEMO_A));
+  rows.set(RESTORE_TARGET_MEMO_B.id, {
+    ...RESTORE_TARGET_MEMO_B,
+    body: '변조된 시험 메모 본문',
+  });
+  const auditLog = [{ event: 'PREVIOUS_AUDIT' }];
+  const result = await restoreSingleMemoFromBackup({
+    memoId: RESTORE_TARGET_MEMO_B.id, db, callerUserId: USER_B, auditLog,
+  });
+  assert.equal(result.restored, true);
+  assert.equal(sha256(rows.get(RESTORE_TARGET_MEMO_B.id).body), RESTORE_TARGET_CONTENT_HASH);
+  assert.equal(JSON.stringify(rows.get(MEMO_A)), beforeA);
+  assert.equal(rows.size, 2);
+  assert.equal(auditLog[0].event, 'PREVIOUS_AUDIT');
+  assert.equal(auditLog[1].event, 'RESTORE_MEMO');
+});
+
+test('10단계 내용해시 위장·타인 소유·잘못된 사본은 쓰기 전에 중단한다', async () => {
+  assert.throws(() => verifyBackupRecord(RESTORE_TARGET_MEMO_B.id, {
+    ...RESTORE_TARGET_MEMO_B,
+    body: '변조된 시험 메모',
+    contentHash: RESTORE_TARGET_CONTENT_HASH,
+  }), /무결성 검증 실패/u);
+  const { db, rows } = makeMockDb();
+  const before = { id: RESTORE_TARGET_MEMO_B.id, owner_id: USER_A,
+    title: '다른 소유자', body: '보존해야 하는 값' };
+  rows.set(RESTORE_TARGET_MEMO_B.id, { ...before });
+  const auditLog = [];
+  await assert.rejects(restoreSingleMemoFromBackup({
+    memoId: RESTORE_TARGET_MEMO_B.id, db, callerUserId: USER_B, auditLog,
+  }), /기존 메모 소유자/u);
+  assert.deepEqual(rows.get(RESTORE_TARGET_MEMO_B.id), before);
+  assert.equal(auditLog.length, 0);
+  await assert.rejects(restoreSingleMemoFromBackup({
+    memoId: RESTORE_TARGET_MEMO_B.id, db, callerUserId: USER_A, auditLog,
+  }), /소유자가 일치하지/u);
+  assert.equal(auditLog.length, 0);
+});
+
+test('10단계 사본 Map의 본문이 바뀌면 잘못된 해시 필드를 믿지 않고 무변경 중단', async () => {
+  const original = VIRTUAL_MEMO_BACKUP_STORE.get(RESTORE_TARGET_MEMO_B.id);
+  const { db, rows } = makeMockDb();
+  const auditLog = [];
+  const beforeA = JSON.stringify(rows.get(MEMO_A));
+  try {
+    VIRTUAL_MEMO_BACKUP_STORE.set(RESTORE_TARGET_MEMO_B.id, {
+      ...original, body: '조작된 백업', contentHash: RESTORE_TARGET_CONTENT_HASH,
+    });
+    await assert.rejects(restoreSingleMemoFromBackup({
+      memoId: RESTORE_TARGET_MEMO_B.id, db, callerUserId: USER_B, auditLog,
+    }), /무결성 검증 실패/u);
+    assert.equal(rows.size, 1);
+    assert.equal(JSON.stringify(rows.get(MEMO_A)), beforeA);
+    assert.equal(auditLog.length, 0);
+  } finally {
+    VIRTUAL_MEMO_BACKUP_STORE.set(RESTORE_TARGET_MEMO_B.id, original);
+  }
 });
