@@ -1,3 +1,35 @@
+## 10단계 저장점 (2026-11-07) — 백업에서 자료실을 되살립니다
+
+- **현재 설정 단계:** `10`. 기존 1~9단계 기능, 공개 배포 주소(`https://choi-bujang-secret-vault-one-theta.vercel.app`), 로그인 발급자, 심판 발급자, 원본 API, DB 정책, `allowedRoutes`를 모두 보존합니다.
+- **안전 정책 사본 및 무결성 해시:**
+  - 1~9단계에서 만든 접근 규칙(`src/decider.mjs`의 `device_registered`, `resource_zone`, `step_up_required`, `aleph.config.json`의 `allowedRoutes` 4개 경로, DB 행 수준 `owner_id` 격리 및 익명 차단 정책)을 안전 정책 기준선(`SAFETY_POLICY_BASELINE`)으로 정립했습니다.
+  - 안전 정책 사본의 정규화 SHA-256 확인용 해시(`VERIFIED_POLICY_HASH`)를 생성하여 보관하며, 사본이 없거나 해시가 일치하지 않으면 복원을 즉시 중단합니다. 실제 운영 정책은 건드리지 않습니다.
+  - 시험용 사본에서 타인 자료 읽기 허용(`allowCrossOwnerRead: true`) 규칙 한 줄을 일부러 바꿔 침공을 흉내 낸 뒤, 검증한 사본과 시험 정책의 차이점(복원할 버전과 변경 범위)만 사전에 표시하는 diff 기능(`diffPolicies`)을 구현했습니다.
+  - 검증한 안전 정책 버전으로 시험 정책을 되돌리는 복원 절차(`restoreTestPolicy`)를 연결하였으며, 다른 서비스 규칙과 감사 이력(`auditLog`)을 온전히 보존합니다. 복원 후 B의 A 자료 요청은 다시 거부(403/404)되고 A 정상 요청은 200 OK로 유지됩니다.
+- **가상 메모 단 1건 복원:**
+  - **복원 대상:** 시험 계정 B(`22222222-2222-4222-8222-222222222222`)의 가상 메모
+  - **메모 ID:** `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`
+  - **메모 제목:** `B 계정 가상 메모`
+  - **메모 본문 내용:** `실습용 가상 B 계정 백업 복원 메모`
+  - **내용 SHA-256 해시:** `1e6a1005a8bfb51fa30a006db99d4dc20ce134909ae8f18d79ff4b553c9f5ae0`
+  - **서비스 및 경로:** 서비스 `notes`, 복원 경로 `POST /api/memos/restore` (`POST /api/restore` 호환)
+  - **복원 동작:** 비공개 가상 메모 사본(`VIRTUAL_MEMO_BACKUP_STORE`)에서 대상 메모의 ID·소유자·내용 해시를 대조 검증한 후 단 1건만 복원합니다. 비로그인 요청은 401, 타인(A) 요청은 403으로 거절되며, 기존 다른 메모와 감사 기록은 보존됩니다.
+- **복구 후 1~9단계 정상·금지 요청 재실행 순서 및 검증 결과:**
+  1. `[1~2단계] 공개 비로그인 자료 차단:` `data.json` 비로그인 확인 시 공개 메모 미노출 (통과 · `npm run test:r5`)
+  2. `[3단계] 서버 인증 경계:` 인증 없는 메모 API 호출 시 401 UNAUTHORIZED 거부 (통과 · `node --test test/notes.test.mjs`)
+  3. `[4단계] 소유자 격리 및 교차 침공 차단:` 사용자 B가 A의 메모 접근 시 403 거부, A 본인 메모 정상 200 응답 (통과 · `node --test test/stage4-owner.test.mjs`)
+  4. `[5단계] 원본 DB 직접 직통 차단:` anon 키로 원본 `study_notes` 직접 조회 시 401/403 거부 (통과 · `src/attack-check.mjs`)
+  5. `[6단계] SDP 미등록 기기 차단:` 미등록 기기 가상 요청 `deny / device_not_registered`, 등록 기기 `allow` (통과 · `npm run decider:test`)
+  6. `[7단계] 복합 이상 이상징후 대응:` 이상 시각·망·폭주 fixture 요청 시 `step_up / step_up_required` 요구, 재인증 시 `allow` (통과 · `npm run fixture:7`)
+  7. `[8단계] 자원 구역(Zone) 통제:` 허용된 개별 메모 및 공지 GET 외 모든 경로 `deny / route_not_allowed` 차단 (통과 · `node --test test/stage8-api-guard.test.mjs`)
+  8. `[9단계] 도플갱어 폭주 조회 탐지:` 10분 구간 120건 초과 GET 요청 시 `propose_revocation / burst_read` 제안, 120건 이하 `observe` (통과 · `npm run detect:test`)
+  9. `[10단계] 백업 복원 및 무결성 검증:` 정책 해시 검증, 시험 변조 diff 산출, 롤백 후 B 침공 재차단, B 가상 메모 1건 무결성 복원 (통과 · `npm run restore:test`, `node --test test/stage10-restore.test.mjs`)
+  - **미실행 시험 명시:** 원격 Vercel 실제 서버 배포 환경에서의 라이브 복원 API 호출 및 운영 심판의 원격 실시간 권한 회수 연동은 로컬 시뮬레이션으로만 통과하였으며 실제 원격 운영 환경 시험은 **미실행** 상태로 결과를 꾸미지 않고 남깁니다.
+- **재검증 명령어 (저장소 루트):** `npm.cmd run decider:test`, `npm.cmd run detect:test`, `npm.cmd run restore:test`, `npm.cmd run fixture:7`, `npm.cmd run test:r5`, `npm.cmd run test:package`, `node --test test/stage10-restore.test.mjs test/stage8-api-guard.test.mjs test/resource-ids.test.mjs test/notes.test.mjs test/memos.test.mjs test/stage4-owner.test.mjs test/stage4-attack-check.test.mjs test/server-auth-cookie.test.mjs`.
+- **제출:** 커밋 후 `npm.cmd run bundle`로 `artifacts/submission.json`을 생성합니다.
+
+---
+
 ## 9단계 저장점 (2026-11-07) — 도플갱어를 찾고 권한을 거둡니다
 
 - **현재 설정 단계:** `9`. 기존 1~8단계 기능, 공개 배포 주소, 로그인 발급자, 심판 발급자, DB, `allowedRoutes`를 보존합니다.

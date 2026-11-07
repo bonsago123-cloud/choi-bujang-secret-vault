@@ -5,6 +5,10 @@
   "outputDirectory": "public",
   "rewrites": [
     {
+      "source": "/api/memos/restore",
+      "destination": "/api/restore"
+    },
+    {
       "source": "/api/memos/:id",
       "destination": "/api/memo?id=:id"
     }
