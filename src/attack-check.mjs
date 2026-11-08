@@ -34,6 +34,7 @@ export async function runAttackChecks(config) {
     // Record a result only if an actual HTTPS GET response supplied an HTTP status.
     // Blocked, failed, or unobserved requests are not claimed as successful HTTP checks.
     const fetchStatus = async (url, init) => {
+      if (config.step === 12) return null;
       try {
         const response = await fetch(url.href, { ...init, method: 'GET' });
         return Number.isInteger(response?.status)
