@@ -58,8 +58,8 @@ test('화면은 기기 승인 확인 전 메모 호출 차단하고 웹 저장�
     assert.match(text(path),/DEVICE_APPROVAL_REQUIRED/);
   }
 });
-test('SDP 11단계 설정을 변경하지 않고 원래 규칙을 사용', () => {
+test('12단계에서도 SDP 제공 엔진 설정과 기존 규칙을 보존', () => {
   const decider = text('src/decider.mjs');
   assert.match(decider,/export const RULE_IDS/u);
-  assert.equal(JSON.parse(text('aleph.config.json')).step,11);
+  assert.equal(JSON.parse(text('aleph.config.json')).step,12);
 });

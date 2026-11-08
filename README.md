@@ -1,3 +1,17 @@
+## 12단계 저장점 (2026-11-08) — 탈환 작전실·API 실측표·재현 안내
+
+- **기준:** 기존 검토 커밋 [`22d318a`](https://github.com/bonsago123-cloud/choi-bujang-secret-vault/commit/22d318ab87d72b36e148166e0bff94039f99f470). 본 저장점은 `aleph.config.json.step`을 **12**로 올린 것입니다. 12단계 공식 심판 점수는 아직 미확인입니다.
+- **구현 출처:** 학생은 `src/decider.mjs`의 판정 규칙 3개(`device_registered`, `step_up_required`, `resource_zone`), `src/detect.mjs`의 `burst_read` 탐지, 설치형 접속 앱, 메모 API, 탈환 작전실, 실측표를 구현했습니다. **ALEPH SDP 엔진**은 과제 운영 측의 제공·운영물로, 신원·기기·경로 확인 후 `aleph.decision.v1` 규격의 요청을 학생 판정기에 전달합니다. 계약은 `docs/DECIDER_REQUEST.md`를 따릅니다. 학생이 제공 엔진을 만들었다고 주장하지 않습니다.
+- **기존 실측(브라우저에서 다운로드한 증거):** 1~11단계 회귀 확인 22행 중 정상 허용 6, 익명 거부 4, 미실행 12, 불일치 0, 통신 오류 0. 이는 현재 운영 HTTP 응답의 측정이며 과거 각 단계의 모든 침공을 재현한 결과가 아닙니다. 브라우저 생성 요청 ID는 서버 로그 ID가 아닙니다. 별도의 **41종 공식 시험은 미검증(`not_assessed`)**으로 유지합니다.
+- **환경 및 설치:** Node.js **22 이상**. `git clone https://github.com/bonsago123-cloud/choi-bujang-secret-vault.git` → `cd choi-bujang-secret-vault` → `npm install`. 신규 복제본 설치의 실제 성공 여부는 별도 확인합니다. 원래 설정의 `judgeIssuer`, `identityProvider`, `allowedRoutes`, `originalApiUrl`, `restoreRoute`, `publicAppUrl`을 보존합니다. 비밀값은 공식 Vercel/Supabase 비밀 설정에서만 관리하고 Git·문서·제출 묶음에 포함하지 않습니다.
+- **실행과 검증:** 로컬에서 `node --test` → `npm run decider:test` → `npm run detect:test` → `npm run restore:test` → `npm run build -- --local`. 로컬 가상 사건 검사와 공식 심판 판정은 별개입니다. 실제 자료실/접속 앱은 `aleph.config.json.publicAppUrl`에 배포된 HTTPS 사이트에서 열고, 로그인 및 관리자 승인된 기기의 WebAuthn 인증 후 확인합니다. 설치형 앱은 브라우저의 **앱 설치** 기능을 사용하되 앱 설치와 기기 승인을 혼동하지 않습니다.
+- **화면·HTTP 재현:** '12단계 · 탈환 작전실'에서 규칙 3개·탐지 미집계·회수 미연결·안전 기준선 버전 `1.0.0-safe-stage9`를 확인하고 가린 서버 기록과 대조합니다. 이어 '안전한 GET 요청 실측' → 정상 HTTP 200 및 익명 HTTP 401/404를 모두 확인 → '실측 JSON 내려받기'. 12건 미실행과 41종 미검증을 통과로 바꾸지 않습니다.
+- **중지:** 테스트 터미널에서 `Ctrl+C`; 접속 앱은 화면에서 **로그아웃** 후 브라우저·설치형 앱을 닫습니다. 창을 닫아도 Vercel 운영 서버는 중지되지 않습니다.
+- **복구:** 로컬 가상 정책·메모 검증은 `npm run restore:test`로 안전 기준선 `1.0.0-safe-stage9` 및 해시 검증 후 진행합니다. 실제 DB 복원, 토큰 회수 및 권한 정지는 자동으로 하지 않습니다. 승인된 운영 절차가 별도로 필요하며 기기 세션 만료 시 기존 승인된 인증장치로 재인증합니다.
+- **제출:** 저장점 커밋이 반영되고 작업 트리가 깨끗할 때 `npm run bundle`. `bundle-notes.json`과 `artifacts/submission.json`은 Git에 커밋하지 않습니다. 비밀번호·인증 토큰·서버 키·기기 개인키·메모 본문은 포함하지 않습니다. 제출 묶음 생성은 공식 점수와 다릅니다.
+
+---
+
 ## 12단계 제작 3 — 구성 요소 출처 및 설치·실행·중지·복구 안내 (2026-11-08)
 
 > **재현 기준:** GitHub `main`에서 실제 API 실측표까지 확인한 커밋 [`f91111b`](https://github.com/bonsago123-cloud/choi-bujang-secret-vault/commit/f91111b5bc60fef76ef7b0055c7e2638aad34b9a). 아래 명령과 경로는 이 커밋의 파일을 기준으로 작성했습니다. **현재 `aleph.config.json`의 `step`은 11이며, 12단계 공식 판정·최종 저장점 완료를 뜻하지 않습니다.**

@@ -66,5 +66,5 @@ test('기존 자료실 보호와 작전실 동작을 유지하고 evidence는 �
   assert.match(html,/hideOperations\(\)/);
   assert.match(html,/measureEvidence\(/);
   assert.doesNotMatch(html,/localStorage|sessionStorage|indexedDB/u);
-  assert.equal(JSON.parse(readFileSync(new URL('../aleph.config.json',import.meta.url))).step,11);
+  assert.equal(JSON.parse(readFileSync(new URL('../aleph.config.json',import.meta.url))).step,12);
 });
