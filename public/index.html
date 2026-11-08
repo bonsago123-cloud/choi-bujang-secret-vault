@@ -40,6 +40,12 @@
     .ops-note { margin: 4px 0; font-size: 13px; }
     #ops-redacted-log { overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid #51667c; border-radius: 8px; font-size: 12px; background: #101a28; }
     .ops-legend { color: #bfd0e5; font-size: 13px; }
+    .evidence-scroll { overflow-x:auto; max-width:100%; margin-top:12px; }
+    .evidence-table { border-collapse:collapse; width:100%; min-width:1000px; font-size:12px; }
+    .evidence-table th, .evidence-table td { padding:8px 9px; border:1px solid #51667c; text-align:left; vertical-align:top; white-space:normal; overflow-wrap:anywhere; }
+    .evidence-table th { background:#101a28; }
+    .evidence-table td { background:#152536; }
+    .evidence-help { color:#bfd0e5; font-size:13px; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -114,6 +120,21 @@
         <p class="ops-legend">운영 서버 로그에도 기록된 동일한 요약입니다. 사용자·메모·인증 정보는 기록하지 않습니다.</p>
         <pre id="ops-redacted-log">서버 확인 전</pre>
       </details>
+      <section id="stage12-evidence" aria-labelledby="stage12-evidence-title">
+        <h3 id="stage12-evidence-title">1~11단계 정상·금지 요청 실측 표</h3>
+        <p class="evidence-help">각 단계 정상·금지 1행씩. 기대 결과와 실제 HTTP 상태, 요청 ID(브라우저 생성), 확인 시각을 기록합니다. 운영 실행이 불가능한 항목은 미실행으로 남깁니다. 별도 41종 공식 시험은 미검증이며 통과로 계산하지 않습니다.</p>
+        <div class="note-controls">
+          <button id="evidence-run" type="button">안전한 GET 요청 실측</button>
+          <button id="evidence-export" type="button" disabled>실측 JSON 내려받기</button>
+        </div>
+        <p id="evidence-status" role="status" aria-live="polite">미실행 · 정식 41종 시험 별도 미검증</p>
+        <div class="evidence-scroll">
+          <table class="evidence-table">
+            <thead><tr><th>단계</th><th>구분</th><th>요청</th><th>기대 HTTP</th><th>실제 HTTP</th><th>측정 요청 ID</th><th>확인 시각 (UTC)</th><th>판정</th></tr></thead>
+            <tbody id="evidence-rows"><tr><td colspan="8">기기 인증 후 조회 가능</td></tr></tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
     <h2 id="legacy-notes-title" hidden>기존 실습용 가상 메모</h2>
@@ -153,7 +174,105 @@ function hideOperations() {
   opsRevocationCount.textContent = '—';
   opsRecoveryVersion.textContent = '—';
   opsRedactedLog.textContent = '서버 확인 전';
+  clearEvidence();
 }
+
+// Stage12 task 2: request evidence is browser-observed, never a fabricated judge result.
+const evidenceRowsBody = document.querySelector('#evidence-rows');
+const evidenceRun = document.querySelector('#evidence-run');
+const evidenceExportButton = document.querySelector('#evidence-export');
+const evidenceStatus = document.querySelector('#evidence-status');
+let evidenceRows = null;
+let evidenceModulePromise = null;
+let evidenceJobVersion = 0;
+function getEvidenceModule() {
+  if (!evidenceModulePromise) evidenceModulePromise = import('/stage12-evidence.js').catch(error => {
+    evidenceModulePromise = null;
+    throw error;
+  });
+  return evidenceModulePromise;
+}
+function clearEvidence() {
+  ++evidenceJobVersion;
+  evidenceRows = null;
+  evidenceRun.disabled = false;
+  evidenceExportButton.disabled = true;
+  evidenceStatus.textContent = '미실행 · 정식 41종 시험 별도 미검증';
+  evidenceRowsBody.replaceChildren();
+}
+function drawEvidenceRows(rows) {
+  const resultNames = {not_executed:'미실행',measured_match:'실측·기대 일치',
+    measured_mismatch:'실측·불일치',transport_error:'통신 오류'};
+  const frag = document.createDocumentFragment();
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    const cols = [String(row.stage),row.kind === 'normal'?'정상':'금지',
+      row.title + ' (' + row.request + ')',
+      row.expectedHTTP === null?'—':String(row.expectedHTTP),
+      row.actualHTTP === null?'—':String(row.actualHTTP),
+      row.requestId || '—',row.checkedAt || '—', resultNames[row.result] || '미확인'];
+    for (const col of cols) {
+      const td = document.createElement('td');
+      td.textContent = col; // No HTML injection, memo content or raw response body.
+      tr.append(td);
+    }
+    frag.append(tr);
+  }
+  evidenceRowsBody.replaceChildren(frag);
+}
+async function prepareEvidenceTable() {
+  try {
+    const job = evidenceJobVersion;
+    const lib = await getEvidenceModule();
+    if (job !== evidenceJobVersion || !deviceVerified || !currentUser || operationsSection.hidden) return;
+    if (!evidenceRows) drawEvidenceRows(lib.emptyEvidenceRows());
+  } catch { evidenceStatus.textContent = '요청 증거 목록 로드 실패 · 미실행'; }
+}
+async function collectEvidence() {
+  if (!currentUser || !deviceVerified || operationsSection.hidden || evidenceRun.disabled) return;
+  const job = ++evidenceJobVersion;
+  const user = currentUser;
+  evidenceRun.disabled = true;
+  evidenceExportButton.disabled = true;
+  evidenceRows = null;
+  evidenceStatus.textContent = '안전한 GET 요청의 실제 HTTP 응답 측정 중…';
+  try {
+    const lib = await getEvidenceModule();
+    const rows = await lib.measureEvidence({
+      fetcher: (path, options) => fetch(path, options),
+      clock: () => new Date(),
+      idFactory: () => crypto.randomUUID(),
+      stillValid: () => job === evidenceJobVersion && currentUser === user && deviceVerified && !operationsSection.hidden,
+    });
+    if (job !== evidenceJobVersion || currentUser !== user || !deviceVerified || operationsSection.hidden) return;
+    evidenceRows = rows;
+    drawEvidenceRows(rows);
+    const counts = lib.evidenceCounts(rows);
+    evidenceExportButton.disabled = !counts.bothMeasured;
+    evidenceStatus.textContent = '실측 정상 허용 ' + counts.normal + '건 · 금지 거부 ' + counts.forbidden
+      + '건 · 불일치 ' + counts.mismatch + '건 · 통신 오류 ' + counts.errors
+      + '건 · 미실행 ' + counts.unexecuted + '건 · 공식 41종 별도 미검증'
+      + (counts.bothMeasured ? ' · 양쪽 실측 증거 확보' : ' · 정상/거부 실측이 모두 있어야 저장 가능');
+  } catch {
+    if (job === evidenceJobVersion) evidenceStatus.textContent = '실측 절차 오류 · 통과로 기록하지 않음';
+  } finally {if (job === evidenceJobVersion) evidenceRun.disabled = false;}
+}
+evidenceRun.addEventListener('click', () => {void collectEvidence();});
+evidenceExportButton.addEventListener('click', async () => {
+  if (!evidenceRows || !deviceVerified || !currentUser || operationsSection.hidden) return;
+  try {
+    const lib = await getEvidenceModule();
+    const safe = lib.evidenceExport(evidenceRows, new Date().toISOString());
+    const url = URL.createObjectURL(new Blob([JSON.stringify(safe, null, 2)], {type:'application/json'}));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'stage12-http-evidence.json';
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch { evidenceStatus.textContent = '증거 내보내기 실패 · 실측 조건을 다시 확인하세요.'; }
+});
 
 function updateConnectionStatus() {
   connectionStatus.textContent = navigator.onLine
@@ -479,6 +598,7 @@ async function loadOperations(active) {
     opsRecoveryNote.textContent = 'API 확인 · 기준선 해시 검증됨 / 실제 운영 복원 미실행';
     opsRedactedLog.textContent = JSON.stringify(log, null, 2);
     operationsStatus.textContent = 'API 응답 HTTP 200 확인 · 조회 ID: ' + summary.requestId + ' · 기준시각: ' + summary.generatedAt;
+    void prepareEvidenceTable();
   } catch (error) {
     if (version === operationsVersion && deviceVerified && currentUser) {
       operationsStatus.textContent = '조회 확인 불가 — ' + (error.message || '서버 오류');
