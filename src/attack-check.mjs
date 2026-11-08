@@ -31,10 +31,16 @@ export async function runAttackChecks(config) {
     // Use the same public anon key for a true direct-access check, without publishing it in HTML.
     const key = PUBLISHABLE_KEY;
 
-    // A failed connection is not an HTTP 401/403 response and cannot prove denial.
+    // Record a result only if an actual HTTPS GET response supplied an HTTP status.
+    // Blocked, failed, or unobserved requests are not claimed as successful HTTP checks.
     const fetchStatus = async (url, init) => {
-      try { return await fetch(url, init); }
-      catch { return { status: '미확인(연결 실패)' }; }
+      try {
+        const response = await fetch(url.href, { ...init, method: 'GET' });
+        return Number.isInteger(response?.status)
+          && response.status >= 100 && response.status <= 599 ? response.status : null;
+      } catch {
+        return null;
+      }
     };
     const [direct, collection, sample, notice, item] = await Promise.all([
       fetchStatus(original, { ...requestOptions, headers: { apikey: key, Accept: 'application/json' } }),
@@ -54,17 +60,17 @@ export async function runAttackChecks(config) {
       {
         attackId: 'anon_direct_study_notes',
         expected: '공개 키의 anon 권한으로 원본 study_notes 직접 조회 시 HTTP 401 또는 403',
-        observed: `실제 anon 원본 자료 HTTP ${direct.status}; ${[401, 403].includes(direct.status) ? '직접 조회 거부' : '접근 상태 추가 확인 필요'}`,
+        observed: direct === null ? 'not_run' : `실제 anon 원본 자료 HTTP ${direct}; ${[401, 403].includes(direct) ? '직접 조회 거부' : '접근 상태 추가 확인 필요'}`,
       },
       {
         attackId: 'anonymous_note_read',
         expected: '비로그인 서버 메모 API 두 경로 모두 HTTP 401',
-        observed: `실제 비로그인 HTTP 상태: /api/memos ${collection.status}, /api/notes ${sample.status}`,
+        observed: collection === null || sample === null ? 'not_run' : `실제 비로그인 HTTP 상태: /api/memos ${collection}, /api/notes ${sample}`,
       },
       ...((config.step >= 8) ? [{
         attackId: 'anonymous_zone_direct_read',
         expected: '비로그인 개별 메모·공지 API 직접 조회 시 자료가 없으며 HTTP 401 예상',
-        observed: `실제 비로그인 HTTP 상태: /api/memos/:id ${item.status}, /api/instructor-notices ${notice.status}${notice.status === 404 ? ' (공지 API는 아직 미배포됐을 수 있음)' : ''}`,
+        observed: item === null || notice === null ? 'not_run' : `실제 비로그인 HTTP 상태: /api/memos/:id ${item}, /api/instructor-notices ${notice}${notice === 404 ? ' (공지 API는 아직 미배포됐을 수 있음)' : ''}`,
       }] : []),
       ...((config.step >= 10) ? [{
         attackId: 'anonymous_restore_attempt',
@@ -73,11 +79,11 @@ export async function runAttackChecks(config) {
       }] : []),
       ...(config.step >= 11 ? [{ attackId: 'anonymous_device_approval_status',
         expected: '비로그인 기기 승인 상태 조회 HTTP 401',
-        observed: '실제 비로그인 승인 상태 HTTP ' + deviceStatus.status,
+        observed: deviceStatus === null ? 'not_run' : '실제 비로그인 승인 상태 HTTP ' + deviceStatus,
       }] : []),
       ...(config.step === 12 ? [{ attackId: 'anonymous_operations_room',
         expected: '비로그인 작전실 API GET 요청은 HTTP 401로 거부',
-        observed: '실제 비로그인 작전실 API HTTP ' + operationsStatus.status,
+        observed: operationsStatus === null ? 'not_run' : '실제 비로그인 작전실 API HTTP ' + operationsStatus,
       }] : []),
     ];
   }
