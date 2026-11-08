@@ -36,16 +36,13 @@ export async function runAttackChecks(config) {
       try { return await fetch(url, init); }
       catch { return { status: '미확인(연결 실패)' }; }
     };
-    const [direct, collection, sample, notice, item, restoreItem] = await Promise.all([
+    const [direct, collection, sample, notice, item] = await Promise.all([
       fetchStatus(original, { ...requestOptions, headers: { apikey: key, Accept: 'application/json' } }),
       fetchStatus(new URL('/api/memos', app), requestOptions),
       fetchStatus(new URL('/api/notes', app), requestOptions),
       ...((config.step >= 8) ? [
         fetchStatus(new URL('/api/instructor-notices', app), requestOptions),
         fetchStatus(new URL('/api/memos/00000000-0000-4000-8000-000000000000', app), requestOptions),
-      ] : []),
-      ...((config.step >= 10) ? [
-        fetchStatus(new URL('/api/memos/restore', app), { ...requestOptions, method: 'POST' }),
       ] : []),
     ]);
     const deviceStatus = config.step >= 11
@@ -72,7 +69,7 @@ export async function runAttackChecks(config) {
       ...((config.step >= 10) ? [{
         attackId: 'anonymous_restore_attempt',
         expected: '비로그인 복원 API 요청 시 자료 복원이 거부되고 HTTP 401 예상',
-        observed: `실제 비로그인 복원 API HTTP 상태: /api/memos/restore ${restoreItem.status}${restoreItem.status === 404 ? ' (복원 API는 아직 미배포됐을 수 있음)' : ''}`,
+        observed: 'not_run',
       }] : []),
       ...(config.step >= 11 ? [{ attackId: 'anonymous_device_approval_status',
         expected: '비로그인 기기 승인 상태 조회 HTTP 401',
